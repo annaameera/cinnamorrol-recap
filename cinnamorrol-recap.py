@@ -5,37 +5,52 @@ import pandas as pd
 from datetime import datetime
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap", page_icon="☁️")
+st.set_page_config(page_title="WAHANA Recap", page_icon="☁️")
 
-# --- CSS LITE (Tanpa Efek Berat) ---
+# --- CSS ULTRA LITE (Fokus Kecepatan & Kontras) ---
 st.markdown("""
     <style>
-    /* Warna solid biru muda agar ringan di render */
-    .stApp { background-color: #F0F9FF; }
+    /* Background Biru Solid Sederhana */
+    .stApp { background-color: #E0F2FE; }
     
-    /* Judul Hitam Tetap Tegas */
+    /* Judul & Sub-judul Hitam Pekat */
     .lite-title {
-        color: #000000;
+        color: #000000 !important;
         font-family: sans-serif;
-        font-weight: bold;
+        font-weight: 800;
         text-align: center;
-        margin-bottom: 5px;
+        margin-bottom: 0px;
+        padding-top: 10px;
     }
     
-    /* Tombol Biru Solid (Tanpa Gradasi/Bayangan Berat) */
+    .lite-sub {
+        color: #000000 !important;
+        font-family: sans-serif;
+        font-weight: 600;
+        text-align: center;
+        font-size: 0.9rem;
+        margin-bottom: 20px;
+    }
+
+    h3 {
+        color: #000000 !important;
+        font-weight: bold !important;
+    }
+    
+    /* Tombol Biru Standar (Ringan) */
     .stButton>button {
-        background-color: #38BDF8;
+        background-color: #0EA5E9;
         color: white;
-        border-radius: 8px;
+        border-radius: 5px;
         border: none;
         width: 100%;
-        height: 3em;
+        font-weight: bold;
     }
     
-    /* Input Box Sederhana */
+    /* Input Box Standar */
     .stTextInput>div>div>input {
-        border: 2px solid #BAE6FD;
-        border-radius: 8px;
+        border: 1px solid #000000;
+        border-radius: 5px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -57,82 +72,92 @@ sh = init_gsheet()
 
 if sh:
     sheet_recap = sh.worksheet("Report Recap")
-    st.markdown("<h2 class='lite-title'>☁️ RECAP WAHANA</h2>", unsafe_allow_html=True)
+    
+    # Judul & Sub-judul Hitam
+    st.markdown("<h1 class='lite-title'>RECAP</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='lite-sub'>Mode Lite: Ringan & Cepat</p>", unsafe_allow_html=True)
 
-    # --- SIDEBAR RINGAN ---
+    # --- SIDEBAR ---
     with st.sidebar:
+        st.markdown("<b style='color:black;'>PENGATURAN</b>", unsafe_allow_html=True)
         selected_date = st.date_input("Pilih Tanggal", datetime.now())
-        st.info("Mode: Lite (Mobile Optimized)")
 
     # --- INPUT FORM ---
-    with st.form("lite_input", clear_on_submit=True):
-        barcode = st.text_input("Input Barcode:", placeholder="Scan...")
-        btn_submit = st.form_submit_button("SIMPAN DATA")
+    with st.form("input_lite", clear_on_submit=True):
+        barcode = st.text_input("Input Barcode / Manual:", placeholder="Scan...")
+        btn_submit = st.form_submit_button("SIMPAN DATA ✨")
 
     if btn_submit and barcode:
         ts = datetime.now().strftime("%H:%M:%S")
-        sheet_daily_name = selected_date.strftime("%d_%m_%Y_Rekap Wahana")
+        sheet_name = selected_date.strftime("%d_%m_%Y_Rekap Wahana")
 
-        # Cek Duplikat (Hanya ambil kolom B agar hemat data)
-        b_values = sheet_recap.col_values(2)[1:1340]
-        
-        if barcode in b_values:
-            st.toast(f"DUPLIKAT: {barcode}", icon="⚠️")
-        else:
-            try:
+        # Cek Duplikat (Hanya ambil kolom B agar hemat memori hp)
+        try:
+            b_values = sheet_recap.col_values(2)[1:1340]
+            
+            if barcode in b_values:
+                st.toast(f"DUPLIKAT: {barcode}", icon="⚠️")
+                st.warning(f"Data {barcode} sudah ada!")
+            else:
                 # Update Report Recap
-                next_r = len(b_values) + 2 # +2 karena index gsheet dan header
-                if next_r <= 1340:
-                    sheet_recap.update_acell(f'B{next_r}', barcode)
-                    sheet_recap.update_acell(f'C{next_r}', ts)
+                next_row = len(b_values) + 2
+                if next_row <= 1340:
+                    sheet_recap.update_acell(f'B{next_row}', barcode)
+                    sheet_recap.update_acell(f'C{next_row}', ts)
                     
-                    # Update/Buat Sheet Harian
+                    # Update Sheet Harian
                     try:
-                        ws_daily = sh.worksheet(sheet_daily_name)
+                        ws_daily = sh.worksheet(sheet_name)
                     except:
-                        ws_daily = sh.add_worksheet(title=sheet_daily_name, rows="1000", cols="5")
-                        ws_daily.append_row(["Data", "Time"])
+                        ws_daily = sh.add_worksheet(title=sheet_name, rows="1000", cols="5")
+                        ws_daily.append_row(["Data", "Waktu"])
                     
                     ws_daily.append_row([barcode, ts])
                     st.toast("✅ Berhasil!", icon="✨")
                     st.rerun()
-            except Exception as e:
-                st.error("Error Simpan")
+                else:
+                    st.error("Batas Baris Penuh!")
+        except Exception as e:
+            st.error("Gagal Simpan!")
 
-    # --- TABEL MONITOR (Hanya A, B, C) ---
+    # --- MONITOR TABEL (A, B, C) ---
     st.markdown("---")
+    st.markdown("### 📊 TABLE")
+    
     try:
-        # Hanya ambil 20 baris terakhir secara langsung dari GSheet untuk hemat RAM hp
-        raw_data = sheet_recap.get_all_values()
-        if len(raw_data) > 1:
-            header = raw_data[0][:3]
-            # Ambil hanya 10 baris terakhir agar tabel tidak 'berat' saat di-scroll di hp
-            rows = [r[:3] for r in raw_data[-10:]] 
+        raw = sheet_recap.get_all_values()
+        if len(raw) > 1:
+            header = raw[0][:3] # No, Data, Timestamp
+            # Hanya ambil 8 data terakhir agar scroll ponsel tidak macet
+            recent_data = [r[:3] for r in raw[-8:]]
             
-            df = pd.DataFrame(rows, columns=header)
+            df = pd.DataFrame(recent_data, columns=header)
             df.insert(0, "Hapus", False)
 
-            # Editor tabel dengan fitur hapus
-            edited_df = st.data_editor(
+            edited = st.data_editor(
                 df,
                 column_config={"Hapus": st.column_config.CheckboxColumn()},
                 disabled=header,
                 hide_index=True,
                 use_container_width=True,
-                key="table_lite"
+                key="lite_table"
             )
 
             if st.button("Hapus Terpilih"):
-                selected = edited_df[edited_df["Hapus"] == True].index.tolist()
-                if selected:
-                    total_data = len(raw_data)
-                    for idx in sorted(selected, reverse=True):
-                        # Hitung baris asli: total_data - (jumlah data ditampilkan - idx)
-                        row_to_del = total_data - (len(rows) - idx - 1)
-                        sheet_recap.delete_rows(int(row_to_del))
+                to_delete = edited[edited["Hapus"] == True].index.tolist()
+                if to_delete:
+                    total = len(raw)
+                    for idx in sorted(to_delete, reverse=True):
+                        # Rumus baris: Total - (Jumlah ditampil - idx - 1)
+                        row_num = total - (len(recent_data) - idx - 1)
+                        sheet_recap.delete_rows(int(row_num))
                     st.rerun()
+        else:
+            st.info("Data Kosong")
     except:
-        st.write("Gagal memuat tabel.")
+        st.write("Tabel tidak dapat dimuat.")
 
 else:
-    st.error("Koneksi Error")
+    st.error("Koneksi Error. Cek Cloud Secrets.")
+
+st.caption("v.Lite Mobile Optimized")
