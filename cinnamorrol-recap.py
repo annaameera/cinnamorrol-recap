@@ -3,41 +3,44 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 from datetime import datetime
-import time
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Wahana Recap", page_icon="☁️")
 
-# --- SIDEBAR SETTINGS (SWITCH THEME) ---
-with st.sidebar:
-    st.title("Settings 🎀")
-    theme_choice = st.radio("Pilih Tampilan Dashboard:", ["Glossy Theme", "Simple Mode"])
-    st.divider()
-    selected_date = st.date_input("📅 Tanggal Rekap", datetime.now())
+# --- CSS LITE (Tanpa Efek Berat) ---
+st.markdown("""
+    <style>
+    /* Warna solid biru muda agar ringan di render */
+    .stApp { background-color: #F0F9FF; }
+    
+    /* Judul Hitam Tetap Tegas */
+    .lite-title {
+        color: #000000;
+        font-family: sans-serif;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 5px;
+    }
+    
+    /* Tombol Biru Solid (Tanpa Gradasi/Bayangan Berat) */
+    .stButton>button {
+        background-color: #38BDF8;
+        color: white;
+        border-radius: 8px;
+        border: none;
+        width: 100%;
+        height: 3em;
+    }
+    
+    /* Input Box Sederhana */
+    .stTextInput>div>div>input {
+        border: 2px solid #BAE6FD;
+        border-radius: 8px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- CUSTOM CSS: HANYA AKTIF JIKA PILIH GLOSSY ---
-if theme_choice == "Glossy Theme":
-    st.markdown("""
-        <style>
-        .stApp { background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 30%, #e0f2fe 100%); background-attachment: fixed; }
-        .main-title { color: #000000; font-family: 'Segoe UI', sans-serif; font-weight: 900; text-align: center; font-size: 3rem; text-transform: uppercase; }
-        div[data-testid="stForm"], .glossy-card {
-            background: rgba(255, 255, 255, 0.25); backdrop-filter: blur(20px);
-            border-radius: 30px; border: 1px solid rgba(255, 255, 255, 0.4);
-            box-shadow: 0 15px 35px 0 rgba(0, 0, 0, 0.1); padding: 25px;
-        }
-        .stButton>button {
-            background: linear-gradient(135deg, #ffffff 0%, #bae6fd 100%);
-            color: #0369a1 !important; border-radius: 50px; font-weight: 800;
-        }
-        .stButton>button:hover { transform: scale(1.02); background: #ffffff; color: #0ea5e9 !important; }
-        </style>
-        """, unsafe_allow_html=True)
-else:
-    # Mode Sederhana: Hanya styling minimal agar judul tetap hitam
-    st.markdown("""<style>.main-title { color: #000000; text-align: center; font-weight: bold; }</style>""", unsafe_allow_html=True)
-
-# --- KONEKSI GSHEET (VIA SECRETS) ---
+# --- KONEKSI GSHEET (DIOPTIMALKAN) ---
 @st.cache_resource
 def init_gsheet():
     try:
@@ -47,98 +50,89 @@ def init_gsheet():
         client = gspread.authorize(creds)
         url = "https://docs.google.com/spreadsheets/d/1vlwLdTxPLDnDkrn4luNKnRr_SH5TG-YJXK5NZAdWCVQ/edit?usp=sharing"
         return client.open_by_url(url)
-    except Exception as e:
-        st.error(f"Koneksi Gagal: {e}")
+    except Exception:
         return None
 
 sh = init_gsheet()
 
 if sh:
     sheet_recap = sh.worksheet("Report Recap")
-    st.markdown("<h1 class='main-title'>☁️ RECAP</h1>", unsafe_allow_html=True)
+    st.markdown("<h2 class='lite-title'>☁️ RECAP WAHANA</h2>", unsafe_allow_html=True)
 
-    # --- INPUT SECTION ---
-    # Menggunakan container agar mode glossy bisa membungkus form
-    with st.container():
-        with st.form("input_form", clear_on_submit=True):
-            barcode = st.text_input("📥 SANDBOX INPUT (Scan Barcode Honeywell)", placeholder="Scan di sini...")
-            btn_submit = st.form_submit_button("SIMPAN DATA KE GSHEET ✨")
+    # --- SIDEBAR RINGAN ---
+    with st.sidebar:
+        selected_date = st.date_input("Pilih Tanggal", datetime.now())
+        st.info("Mode: Lite (Mobile Optimized)")
 
-    if btn_submit:
-        if not barcode:
-            st.toast("Scan Gagal! Input Kosong.", icon="❌")
-        else:
-            ts = datetime.now().strftime("%H:%M:%S")
-            sheet_daily_name = selected_date.strftime("%d_%m_%Y_Rekap Wahana")
+    # --- INPUT FORM ---
+    with st.form("lite_input", clear_on_submit=True):
+        barcode = st.text_input("Input Barcode:", placeholder="Scan...")
+        btn_submit = st.form_submit_button("SIMPAN DATA")
 
-            # --- LOGIKA UNIQUE DATA (B2:B1340) ---
-            all_b_values = sheet_recap.col_values(2)[1:1340]
-            
-            if barcode in all_b_values:
-                st.toast(f"DUPLIKAT: {barcode}", icon="⚠️")
-                st.warning(f"⚠️ DATA DUPLIKAT: '{barcode}' sudah ada!")
-            else:
-                try:
-                    next_row = len(sheet_recap.col_values(2)) + 1
-                    if next_row <= 1340:
-                        sheet_recap.update_acell(f'B{next_row}', barcode)
-                        sheet_recap.update_acell(f'C{next_row}', ts)
-                        
-                        # Update Sheet Harian
-                        try:
-                            ws_daily = sh.worksheet(sheet_daily_name)
-                        except gspread.WorksheetNotFound:
-                            ws_daily = sh.add_worksheet(title=sheet_daily_name, rows="1000", cols="5")
-                            ws_daily.append_row(["Data Barcode", "Timestamp"])
-                        
-                        ws_daily.append_row([barcode, ts])
-                        
-                        st.toast(f"BERHASIL: {barcode}", icon="✅")
-                        st.success(f"✅ Berhasil menyimpan {barcode}")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        st.error("Sheet Penuh!")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    if btn_submit and barcode:
+        ts = datetime.now().strftime("%H:%M:%S")
+        sheet_daily_name = selected_date.strftime("%d_%m_%Y_Rekap Wahana")
 
-    # --- MONITOR MONITOR TABEL (A, B, C) ---
-    st.divider()
-    st.subheader("📊 TABLE")
-
-    raw_data = sheet_recap.get_all_values()
-    if len(raw_data) > 0:
-        header = raw_data[0][:3]
-        # Pastikan header terisi
-        header = [h if h else f"Col_{i+1}" for i, h in enumerate(header)]
+        # Cek Duplikat (Hanya ambil kolom B agar hemat data)
+        b_values = sheet_recap.col_values(2)[1:1340]
         
-        data_rows = [r[:3] for r in raw_data[1:] if len(r) >= 2]
-        df = pd.DataFrame(data_rows, columns=header)
-        df.insert(0, "Pilih", False)
+        if barcode in b_values:
+            st.toast(f"DUPLIKAT: {barcode}", icon="⚠️")
+        else:
+            try:
+                # Update Report Recap
+                next_r = len(b_values) + 2 # +2 karena index gsheet dan header
+                if next_r <= 1340:
+                    sheet_recap.update_acell(f'B{next_r}', barcode)
+                    sheet_recap.update_acell(f'C{next_r}', ts)
+                    
+                    # Update/Buat Sheet Harian
+                    try:
+                        ws_daily = sh.worksheet(sheet_daily_name)
+                    except:
+                        ws_daily = sh.add_worksheet(title=sheet_daily_name, rows="1000", cols="5")
+                        ws_daily.append_row(["Data", "Time"])
+                    
+                    ws_daily.append_row([barcode, ts])
+                    st.toast("✅ Berhasil!", icon="✨")
+                    st.rerun()
+            except Exception as e:
+                st.error("Error Simpan")
 
-        edited_df = st.data_editor(
-            df.tail(15), 
-            column_config={"Pilih": st.column_config.CheckboxColumn(required=True)},
-            disabled=[c for c in df.columns if c != "Pilih"],
-            hide_index=True,
-            use_container_width=True,
-            key="monitor_data"
-        )
+    # --- TABEL MONITOR (Hanya A, B, C) ---
+    st.markdown("---")
+    try:
+        # Hanya ambil 20 baris terakhir secara langsung dari GSheet untuk hemat RAM hp
+        raw_data = sheet_recap.get_all_values()
+        if len(raw_data) > 1:
+            header = raw_data[0][:3]
+            # Ambil hanya 10 baris terakhir agar tabel tidak 'berat' saat di-scroll di hp
+            rows = [r[:3] for r in raw_data[-10:]] 
+            
+            df = pd.DataFrame(rows, columns=header)
+            df.insert(0, "Hapus", False)
 
-        if st.button("🗑️ HAPUS BARIS TERPILIH"):
-            selected = edited_df[edited_df["Pilih"] == True].index.tolist()
-            if selected:
-                total_data = len(df)
-                for idx in sorted(selected, reverse=True):
-                    offset = max(0, total_data - 15)
-                    row_to_del = idx + offset + 2
-                    sheet_recap.delete_rows(row_to_del)
-                
-                st.toast("Terhapus!", icon="🗑️")
-                st.rerun()
-    else:
-        st.info("Belum ada data.")
+            # Editor tabel dengan fitur hapus
+            edited_df = st.data_editor(
+                df,
+                column_config={"Hapus": st.column_config.CheckboxColumn()},
+                disabled=header,
+                hide_index=True,
+                use_container_width=True,
+                key="table_lite"
+            )
+
+            if st.button("Hapus Terpilih"):
+                selected = edited_df[edited_df["Hapus"] == True].index.tolist()
+                if selected:
+                    total_data = len(raw_data)
+                    for idx in sorted(selected, reverse=True):
+                        # Hitung baris asli: total_data - (jumlah data ditampilkan - idx)
+                        row_to_del = total_data - (len(rows) - idx - 1)
+                        sheet_recap.delete_rows(int(row_to_del))
+                    st.rerun()
+    except:
+        st.write("Gagal memuat tabel.")
+
 else:
-    st.error("Gagal koneksi. Cek Cloud Secrets!")
-
-st.caption(f"Mode Aktif: {theme_choice} | Cinnamoroll Recap v3.0")
+    st.error("Koneksi Error")
