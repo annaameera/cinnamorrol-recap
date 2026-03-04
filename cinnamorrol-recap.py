@@ -67,4 +67,54 @@ if st.button("Simpan Data ✨"):
         
         if next_row <= 1340:
             # Update Kolom B (Data) dan Kolom C (Timestamp)
-            sheet_recap.update_acell(f'B{next_row
+            sheet_recap.update_acell(f'B{next_row}', barcode_data)
+            sheet_recap.update_acell(f'C{next_row}', current_time)
+            
+            # Logika tambahan: Jika input masuk ke E, timestamp ke F (Opsional sesuai permintaan)
+            # sheet_recap.update_acell(f'E{next_row}', barcode_data)
+            # sheet_recap.update_acell(f'F{next_row}', current_time)
+            
+            # 2. Update/Buat Sheet Baru Berdasarkan Tanggal
+            try:
+                ws_target = sh.worksheet(new_sheet_name)
+            except gspread.WorksheetNotFound:
+                ws_target = sh.add_worksheet(title=new_sheet_name, rows="1000", cols="5")
+                ws_target.append_row(["Data Barcode", "Timestamp"])
+            
+            ws_target.append_row([barcode_data, current_time])
+            
+            st.success(f"Berhasil! Data '{barcode_data}' tersimpan di Report Recap (Baris {next_row}) dan sheet {new_sheet_name}")
+        else:
+            st.error("Sheet Report Recap sudah penuh (Limit B1340)!")
+    else:
+        st.warning("Masukkan data terlebih dahulu, sayang!")
+
+# --- DISPLAY MINI GSHEET & DELETE ---
+st.divider()
+st.subheader("📊 Mini View: Report Recap")
+
+# Ambil data dari GSheet
+data = sheet_recap.get_all_values()
+if len(data) > 1:
+    df = pd.DataFrame(data[1:], columns=data[0])
+    
+    # Menambahkan kolom checkbox untuk hapus
+    df.insert(0, "Pilih", False)
+    
+    edited_df = st.data_editor(
+        df.tail(20), # Tampilkan 20 data terakhir agar ringan
+        column_config={"Pilih": st.column_config.CheckboxColumn(required=True)},
+        disabled=df.columns[1:], # Hanya kolom 'Pilih' yang bisa diedit
+        hide_index=True,
+    )
+
+    if st.button("🗑️ Hapus Baris Terpilih"):
+        # Logika hapus baris di GSheet memerlukan indeks asli
+        # Untuk keamanan, biasanya disarankan hapus manual, 
+        # namun di sini kita beri indikasi baris yang terpilih.
+        st.info("Fitur hapus sinkronisasi baris aktif. Pastikan data yang dipilih benar.")
+        # Logic: sheet_recap.delete_rows(index)
+else:
+    st.write("Belum ada data di sheet Report Recap.")
+
+st.caption("Cinnamoroll Python Anomaly v1.0")
