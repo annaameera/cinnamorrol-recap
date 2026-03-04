@@ -162,7 +162,7 @@ if sh:
 
     # --- MINI MONITOR (KOLOM A, B, C) ---
     st.markdown("---")
-    st.markdown("<h3 style='color:#000000;'>📊 MONITOR DATA (Kolom A, B, C)</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color:#000000;'>📊 Table</h3>", unsafe_allow_html=True)
 
     raw_data = sheet_recap.get_all_values()
     if len(raw_data) > 0:
