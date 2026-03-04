@@ -74,7 +74,7 @@ if sh:
     sheet_recap = sh.worksheet("Report Recap")
     
     # Judul & Sub-judul Hitam
-    st.markdown("<h1 class='lite-title'>RECAP</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='lite-title'> WAHANA RECAP</h1>", unsafe_allow_html=True)
     st.markdown("<p class='lite-sub'>Mode Lite: Ringan & Cepat</p>", unsafe_allow_html=True)
 
     # --- SIDEBAR ---
