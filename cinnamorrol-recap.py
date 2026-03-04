@@ -6,7 +6,7 @@ from datetime import datetime
 import time
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Cinnamoroll Wahana Recap", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Wahana Recap", page_icon="☁️", layout="wide")
 
 # --- SIDEBAR SETTINGS (SWITCH THEME) ---
 with st.sidebar:
@@ -55,7 +55,7 @@ sh = init_gsheet()
 
 if sh:
     sheet_recap = sh.worksheet("Report Recap")
-    st.markdown("<h1 class='main-title'>☁️ CINNAMOROLL RECAP</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title'>☁️ RECAP</h1>", unsafe_allow_html=True)
 
     # --- INPUT SECTION ---
     # Menggunakan container agar mode glossy bisa membungkus form
@@ -104,7 +104,7 @@ if sh:
 
     # --- MONITOR MONITOR TABEL (A, B, C) ---
     st.divider()
-    st.subheader("📊 Live Monitor (Range A, B, C)")
+    st.subheader("📊 TABLE")
 
     raw_data = sheet_recap.get_all_values()
     if len(raw_data) > 0:
