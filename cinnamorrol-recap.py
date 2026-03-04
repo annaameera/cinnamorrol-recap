@@ -6,7 +6,7 @@ from datetime import datetime
 import time
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Cinnamoroll Wahana Recap", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Wahana Recap", page_icon="☁️", layout="wide")
 
 # --- CUSTOM CSS: BLUE GLOSSY CRYSTAL THEME ---
 st.markdown("""
@@ -107,7 +107,7 @@ if sh:
     sheet_recap = sh.worksheet("Report Recap")
     
     st.markdown("<h1 class='main-title'>☁️ CINNAMOROLL RECAP</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#000000; font-weight:600;'>System Monitoring Wahana - Premium Blue Glossy Mode</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#000000; font-weight:600;'>Recap Wahana</p>", unsafe_allow_html=True)
 
     # --- INPUT SECTION ---
     with st.form("main_scan_form", clear_on_submit=True):
