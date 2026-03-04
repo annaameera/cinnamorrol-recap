@@ -106,7 +106,7 @@ sh = init_gsheet()
 if sh:
     sheet_recap = sh.worksheet("Report Recap")
     
-    st.markdown("<h1 class='main-title'>☁️ CINNAMOROLL RECAP</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title'>☁️ WAHANA RECAP</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align:center; color:#000000; font-weight:600;'>Recap Wahana</p>", unsafe_allow_html=True)
 
     # --- INPUT SECTION ---
