@@ -8,82 +8,86 @@ import time
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Cinnamoroll Wahana Recap", page_icon="☁️", layout="wide")
 
-# --- CUSTOM CSS: ULTRA GLOSSY & GLASSMORPHISM ---
+# --- CUSTOM CSS: BLUE GLOSSY CRYSTAL THEME ---
 st.markdown("""
     <style>
-    /* Background Animasi Biru Langit Soft */
+    /* Background Biru Langit Bergradasi */
     .stApp {
-        background: linear-gradient(-45deg, #e0f2fe, #f0f9ff, #ffffff, #bae6fd);
-        background-size: 400% 400%;
-        animation: gradient 15s ease infinite;
-    }
-    @keyframes gradient {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
+        background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 30%, #e0f2fe 100%);
+        background-attachment: fixed;
     }
 
-    /* Judul Font Hitam Elegan */
+    /* Judul Utama Font Hitam Tegas */
     .main-title {
         color: #000000;
         font-family: 'Segoe UI', Tahoma, Geneva, sans-serif;
         font-weight: 900;
         text-align: center;
-        font-size: 3rem;
-        letter-spacing: -1px;
-        margin-bottom: 5px;
+        font-size: 3.5rem;
+        margin-bottom: 0px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
     }
 
-    /* Container Glossy (Efek Kaca) */
+    /* Container Glossy (Efek Kaca Kristal) */
     div[data-testid="stForm"], .glossy-card {
-        background: rgba(255, 255, 255, 0.25);
-        backdrop-filter: blur(15px);
-        -webkit-backdrop-filter: blur(15px);
+        background: rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(20px) saturate(200%);
+        -webkit-backdrop-filter: blur(20px) saturate(200%);
         border-radius: 30px;
-        border: 1px solid rgba(255, 255, 255, 0.5);
-        box-shadow: 0 10px 40px 0 rgba(31, 38, 135, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        box-shadow: 0 15px 35px 0 rgba(0, 0, 0, 0.1);
         padding: 30px;
+        color: #000000;
     }
 
     /* Input Box Glossy */
     .stTextInput>div>div>input {
-        background: rgba(255, 255, 255, 0.5) !important;
+        background: rgba(255, 255, 255, 0.6) !important;
         border-radius: 15px !important;
-        border: 1px solid rgba(125, 211, 252, 0.5) !important;
-        color: #0c4a6e !important;
-        font-weight: 600;
+        border: 2px solid rgba(255, 255, 255, 0.8) !important;
+        color: #000000 !important;
+        font-weight: bold;
+        font-size: 1.1rem;
     }
 
-    /* Tombol Biru Glossy Berkilo */
+    /* Tombol Biru Glossy (Shining Effect) */
     .stButton>button {
-        background: linear-gradient(135deg, #7dd3fc 0%, #0ea5e9 100%);
-        color: white;
+        background: linear-gradient(135deg, #ffffff 0%, #bae6fd 100%);
+        color: #0369a1 !important;
         border-radius: 50px;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        font-weight: bold;
-        padding: 15px 30px;
-        transition: all 0.4s ease;
-        box-shadow: 0 4px 15px rgba(14, 165, 233, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        font-weight: 800;
+        padding: 15px 40px;
+        transition: all 0.3s ease-in-out;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         width: 100%;
+        text-transform: uppercase;
     }
 
     .stButton>button:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 25px rgba(14, 165, 233, 0.5);
-        background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);
-        color: white;
+        transform: translateY(-3px) scale(1.02);
+        background: #ffffff;
+        box-shadow: 0 10px 25px rgba(255, 255, 255, 0.4);
+        color: #0ea5e9 !important;
     }
 
-    /* Table Styling */
+    /* Table Styling (Range A,B,C) */
     .stDataFrame {
-        background: rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.4);
         border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+    }
+    
+    /* Sidebar Glossy */
+    [data-testid="stSidebar"] {
+        background-color: rgba(14, 165, 233, 0.8);
+        backdrop-filter: blur(10px);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- KONEKSI GSHEET ---
+# --- KONEKSI GSHEET (VIA SECRETS) ---
 @st.cache_resource
 def init_gsheet():
     try:
@@ -94,7 +98,7 @@ def init_gsheet():
         url = "https://docs.google.com/spreadsheets/d/1vlwLdTxPLDnDkrn4luNKnRr_SH5TG-YJXK5NZAdWCVQ/edit?usp=sharing"
         return client.open_by_url(url)
     except Exception as e:
-        st.error(f"Koneksi Gagal: {e}")
+        st.error(f"Koneksi Cloud Terputus: {e}")
         return None
 
 sh = init_gsheet()
@@ -103,41 +107,41 @@ if sh:
     sheet_recap = sh.worksheet("Report Recap")
     
     st.markdown("<h1 class='main-title'>☁️ CINNAMOROLL RECAP</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#64748b; font-weight:500;'>Wahana Inventory System - Premium Glossy Mode</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#000000; font-weight:600;'>System Monitoring Wahana - Premium Blue Glossy Mode</p>", unsafe_allow_html=True)
 
     # --- INPUT SECTION ---
-    with st.form("scan_form", clear_on_submit=True):
+    with st.form("main_scan_form", clear_on_submit=True):
         c1, c2 = st.columns([1, 2])
         with c1:
-            date_pick = st.date_input("📅 Tanggal Rekap", datetime.now())
+            date_pick = st.date_input("📅 TANGGAL REKAP", datetime.now())
         with c2:
-            barcode = st.text_input("📥 Kotak Sandbox (Honeywell)", placeholder="Arahkan kursor & scan...")
+            barcode = st.text_input("📥 SANDBOX INPUT (Honeywell)", placeholder="Arahkan kursor & scan sekarang...")
         
-        btn_submit = st.form_submit_button("SIMPAN DATA SEKARANG ✨")
+        btn_submit = st.form_submit_button("SIMPAN DATA KE GSHEET ✨")
 
     if btn_submit:
         if not barcode:
-            st.toast("Gagal! Scan tidak terdeteksi.", icon="❌")
-            st.error("❌ Scan Gagal: Kotak input kosong!")
+            st.toast("Scan Gagal! Input Kosong.", icon="❌")
+            st.error("❌ ERROR: Tidak ada data yang di-scan!")
         else:
             ts = datetime.now().strftime("%H:%M:%S")
             sheet_daily_name = date_pick.strftime("%d_%m_%Y_Rekap Wahana")
 
-            # --- LOGIKA UNIQUE DATA (B2:B1340) ---
-            all_b = sheet_recap.col_values(2)[1:1340] 
+            # --- LOGIKA ANTI-DUPLIKAT (Kolom B2:B1340) ---
+            all_b_values = sheet_recap.col_values(2)[1:1340]
             
-            if barcode in all_b:
-                st.toast(f"Duplikat: {barcode}", icon="⚠️")
-                st.warning(f"⚠️ Scan Duplikat: Data '{barcode}' sudah ada di sistem!")
+            if barcode in all_b_values:
+                st.toast(f"DUPLIKAT: {barcode}", icon="⚠️")
+                st.warning(f"⚠️ DATA DUPLIKAT: Barcode '{barcode}' sudah pernah tersimpan!")
             else:
                 try:
-                    # 1. Update Report Recap
+                    # 1. Update Report Recap (A, B, C)
                     next_row = len(sheet_recap.col_values(2)) + 1
                     if next_row <= 1340:
                         sheet_recap.update_acell(f'B{next_row}', barcode)
                         sheet_recap.update_acell(f'C{next_row}', ts)
                         
-                        # 2. Update Sheet Harian
+                        # 2. Update Sheet Harian (Dynamic Creation)
                         try:
                             ws_daily = sh.worksheet(sheet_daily_name)
                         except gspread.WorksheetNotFound:
@@ -147,50 +151,59 @@ if sh:
                         ws_daily.append_row([barcode, ts])
                         
                         # --- NOTIFIKASI SUKSES ---
-                        st.toast(f"Berhasil! {barcode} tersimpan.", icon="✅")
-                        st.success(f"✅ Berhasil: '{barcode}' masuk ke cloud!")
+                        st.toast(f"BERHASIL: {barcode}", icon="✅")
+                        st.success(f"✅ BERHASIL: '{barcode}' telah diproses ke Cloud!")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("❌ Kapasitas Penuh (B1340)!")
+                        st.error("❌ LIMIT TERCAPAI: Sheet Report Recap sudah penuh (1340 baris)!")
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Gagal memproses data: {e}")
 
-    # --- MONITOR MONITOR TABEL (A, B, C) ---
+    # --- MINI MONITOR (KOLOM A, B, C) ---
     st.markdown("---")
-    st.subheader("📊 Live Monitor: Kolom A, B, C")
+    st.markdown("<h3 style='color:#000000;'>📊 MONITOR DATA (Kolom A, B, C)</h3>", unsafe_allow_html=True)
 
-    raw_rows = sheet_recap.get_all_values()
-    if len(raw_rows) > 0:
-        header = raw_rows[0][:3]
-        data_body = [r[:3] for r in raw_rows[1:] if len(r) >= 2]
-        df = pd.DataFrame(data_body, columns=header)
+    raw_data = sheet_recap.get_all_values()
+    if len(raw_data) > 0:
+        header = raw_data[0][:3] # Mengambil Kolom A, B, dan C
+        # Memberikan nama jika header kosong di gsheet
+        if not header[0]: header[0] = "No"
+        if not header[1]: header[1] = "Data Barcode"
+        if not header[2]: header[2] = "Timestamp"
+
+        data_rows = [r[:3] for r in raw_data[1:] if len(r) >= 2]
+        df = pd.DataFrame(data_rows, columns=header)
         df.insert(0, "Pilih", False)
 
+        # Editor Tabel Glossy
         edited_df = st.data_editor(
             df.tail(15), 
             column_config={"Pilih": st.column_config.CheckboxColumn(required=True)},
             disabled=[c for c in df.columns if c != "Pilih"],
             hide_index=True,
             use_container_width=True,
-            key="table_monitor"
+            key="glossy_monitor"
         )
 
-        if st.button("🗑️ Hapus Baris Terpilih"):
-            selected_rows = edited_df[edited_df["Pilih"] == True].index.tolist()
-            if selected_rows:
-                total_rows = len(df)
-                for idx in sorted(selected_rows, reverse=True):
-                    offset = max(0, total_rows - 15)
-                    row_to_del = idx + offset + 2
-                    sheet_recap.delete_rows(row_to_del)
+        if st.button("🗑️ HAPUS BARIS TERPILIH"):
+            selected = edited_df[edited_df["Pilih"] == True].index.tolist()
+            if selected:
+                total_data = len(df)
+                for idx in sorted(selected, reverse=True):
+                    # Kalkulasi baris asli di gsheet
+                    offset = max(0, total_data - 15)
+                    row_gsheet = idx + offset + 2
+                    sheet_recap.delete_rows(row_gsheet)
                 
-                st.toast("Data terhapus!", icon="🗑️")
+                st.toast("Data terhapus dari cloud!", icon="🗑️")
                 st.rerun()
             else:
-                st.info("Ceklist data untuk dihapus.")
+                st.info("Pilih data yang ingin dihapus dengan menekan centang.")
     else:
-        st.info("Menunggu data masuk...")
+        st.info("Belum ada data terekam.")
 
 else:
-    st.error("Konfigurasi Secrets Gagal!")
+    st.error("Konfigurasi Secrets Gagal atau Belum Dipasang!")
+
+st.caption("Cinnamoroll Wahana Inventory System v2.0 - Ultra Glossy")
