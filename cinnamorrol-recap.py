@@ -7,114 +7,155 @@ from datetime import datetime
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Cinnamoroll Wahana Recap", page_icon="☁️", layout="wide")
 
-# --- CUSTOM CSS (TEMA CINNAMOROLL) ---
+# --- CUSTOM CSS: THEMA BIRU ELEGAN & CINNAMOROLL ---
 st.markdown("""
     <style>
-    .stApp { background-color: #F0F8FF; }
-    .stButton>button { 
-        background-color: #A0D8EF; color: white; border-radius: 20px; 
-        border: 2px solid #5FB0E8; font-weight: bold; width: 100%;
+    /* Mengubah background utama dengan gradasi biru elegan */
+    .stApp {
+        background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
     }
-    .stTextInput>div>div>input { border-radius: 15px; border: 2px solid #A0D8EF; }
-    h1, h2, h3 { color: #5FB0E8; font-family: 'Comic Sans MS', cursive, sans-serif; text-align: center; }
-    .stDataFrame { border: 2px solid #A0D8EF; border-radius: 10px; }
-    div[data-testid="stMetricValue"] { color: #5FB0E8; }
+
+    /* Styling Header/Judul */
+    h1 {
+        color: #0369a1;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-weight: 800;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        padding-bottom: 20px;
+    }
+
+    /* Kotak Input & Kontainer (Glassmorphism Effect) */
+    div[data-testid="stVerticalBlock"] > div:has(div.stTextInput) {
+        background: rgba(255, 255, 255, 0.6);
+        backdrop-filter: blur(10px);
+        border-radius: 25px;
+        padding: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+    }
+
+    /* Tombol Biru Elegan */
+    .stButton>button {
+        background: linear-gradient(90deg, #38bdf8 0%, #0284c7 100%);
+        color: white;
+        border-radius: 50px;
+        border: none;
+        padding: 12px 24px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
+    }
+
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(2, 132, 199, 0.4);
+        color: #f0f9ff;
+    }
+
+    /* Styling Dataframe/Table */
+    .stDataFrame {
+        border-radius: 20px;
+        overflow: hidden;
+        border: 2px solid #bae6fd;
+    }
+
+    /* Sidebar Customization */
+    [data-testid="stSidebar"] {
+        background-color: #f0f9ff;
+        border-right: 2px solid #e0f2fe;
+    }
+
+    /* Label Styling */
+    .stMarkdown p {
+        color: #0c4a6e;
+        font-weight: 500;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- KONEKSI GSHEET (VIA SECRETS) ---
+# --- FUNGSI KONEKSI (MENGGUNAKAN SECRETS) ---
+@st.cache_resource
 def init_gsheet():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Mengambil kredensial dari Streamlit Secrets untuk deploy GitHub
-    creds_info = st.secrets["gcp_service_account"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
-    client = gspread.authorize(creds)
-    url = "https://docs.google.com/spreadsheets/d/1vlwLdTxPLDnDkrn4luNKnRr_SH5TG-YJXK5NZAdWCVQ/edit?usp=sharing"
-    return client.open_by_url(url)
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds_info = st.secrets["gcp_service_account"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
+        client = gspread.authorize(creds)
+        url = "https://docs.google.com/spreadsheets/d/1vlwLdTxPLDnDkrn4luNKnRr_SH5TG-YJXK5NZAdWCVQ/edit?usp=sharing"
+        return client.open_by_url(url)
+    except Exception as e:
+        st.error(f"❌ Koneksi Gagal: {e}")
+        return None
 
-try:
-    sh = init_gsheet()
+sh = init_gsheet()
+
+if sh:
     sheet_recap = sh.worksheet("Report Recap")
-except Exception as e:
-    st.error(f"Koneksi Gagal: {e}. Pastikan Secrets sudah disetting!")
-    st.stop()
+    
+    # --- UI DASHBOARD ---
+    st.markdown("<h1>☁️ CINNAMOROLL WAHANA SYSTEM</h1>", unsafe_allow_html=True)
+    
+    # Bagian Atas: Kalender & Input
+    col_left, col_right = st.columns([1, 2], gap="large")
+    
+    with col_left:
+        st.markdown("### 📅 Pengaturan Rekap")
+        selected_date = st.date_input("Pilih Tanggal", datetime.now())
+        # Format nama sheet sesuai permintaan
+        sheet_name_new = selected_date.strftime("%d_%m_%Y_Rekap Wahana")
+        st.info(f"Target: `{sheet_name_new}`")
 
-# --- BAGIAN INPUT ---
-st.title("☁️ Cinnamoroll Wahana Recap ☁️")
-st.write("### Masukkan data barcode (Honeywell) atau manual di bawah ini")
-
-# Kalender untuk memilih tanggal sheet baru
-col_date, col_input = st.columns([1, 2])
-
-with col_date:
-    selected_date = st.date_input("📅 Pilih Tanggal Rekap", datetime.now())
-    formatted_date = selected_date.strftime("%d_%m_%Y")
-    new_sheet_name = f"{formatted_date}_Rekap Wahana"
-
-with col_input:
-    # Sandbox/Input Box
-    barcode_data = st.text_input("📥 Sandbox / Kotak Input Data", placeholder="Scan atau Ketik di sini...", key="input_data")
-
-# Tombol Simpan
-if st.button("Simpan Data ✨"):
-    if barcode_data:
-        current_time = datetime.now().strftime("%H:%M:%S")
+    with col_right:
+        st.markdown("### 📥 Sandbox Input")
+        barcode_input = st.text_input("Arahkan kursor di sini untuk scan Honeywell", 
+                                     placeholder="Menunggu scan barcode...", 
+                                     key="main_input")
         
-        # 1. Update ke Sheet "Report Recap" (Cari baris kosong di B2:B1340)
-        # Ambil semua data kolom B
-        b_values = sheet_recap.col_values(2)
-        next_row = len(b_values) + 1
+        btn_save = st.button("PROSES & SIMPAN DATA 🎀")
+
+    # --- LOGIKA PENYIMPANAN ---
+    if btn_save and barcode_input:
+        ts = datetime.now().strftime("%H:%M:%S")
         
-        if next_row <= 1340:
-            # Update Kolom B (Data) dan Kolom C (Timestamp)
-            sheet_recap.update_acell(f'B{next_row}', barcode_data)
-            sheet_recap.update_acell(f'C{next_row}', current_time)
+        # 1. Update ke Report Recap (B2:B1340)
+        # Ambil kolom B untuk cari baris kosong
+        b_col = sheet_recap.col_values(2)
+        target_row = len(b_col) + 1
+        
+        if target_row <= 1340:
+            # Update Data di B & Timestamp di C
+            sheet_recap.update_acell(f'B{target_row}', barcode_input)
+            sheet_recap.update_acell(f'C{target_row}', ts)
             
-            # Logika tambahan: Jika input masuk ke E, timestamp ke F (Opsional sesuai permintaan)
-            # sheet_recap.update_acell(f'E{next_row}', barcode_data)
-            # sheet_recap.update_acell(f'F{next_row}', current_time)
-            
-            # 2. Update/Buat Sheet Baru Berdasarkan Tanggal
+            # 2. Update ke Sheet Harian (Buat jika belum ada)
             try:
-                ws_target = sh.worksheet(new_sheet_name)
+                ws_daily = sh.worksheet(sheet_name_new)
             except gspread.WorksheetNotFound:
-                ws_target = sh.add_worksheet(title=new_sheet_name, rows="1000", cols="5")
-                ws_target.append_row(["Data Barcode", "Timestamp"])
+                ws_daily = sh.add_worksheet(title=sheet_name_new, rows="1000", cols="5")
+                ws_daily.append_row(["Data Barcode", "Timestamp"])
             
-            ws_target.append_row([barcode_data, current_time])
+            ws_daily.append_row([barcode_input, ts])
             
-            st.success(f"Berhasil! Data '{barcode_data}' tersimpan di Report Recap (Baris {next_row}) dan sheet {new_sheet_name}")
+            st.balloons()
+            st.success(f"Berhasil disimpan ke baris {target_row}!")
         else:
-            st.error("Sheet Report Recap sudah penuh (Limit B1340)!")
+            st.error("⚠️ Batas maksimal baris (1340) telah tercapai!")
+
+    # --- TABEL VIEW ---
+    st.markdown("---")
+    st.markdown("### 📊 Live Monitor: Report Recap")
+    
+    data_raw = sheet_recap.get_all_values()
+    if len(data_raw) > 1:
+        df = pd.DataFrame(data_raw[1:], columns=data_raw[0])
+        
+        # Menampilkan tabel mini (20 data terakhir)
+        st.dataframe(df.tail(20), use_container_width=True)
+        
+        # Opsi Hapus (Manual check)
+        st.markdown("*(Gunakan Google Sheets secara langsung untuk menghapus baris demi akurasi data)*")
     else:
-        st.warning("Masukkan data terlebih dahulu, sayang!")
+        st.info("Belum ada data di cloud.")
 
-# --- DISPLAY MINI GSHEET & DELETE ---
-st.divider()
-st.subheader("📊 Mini View: Report Recap")
-
-# Ambil data dari GSheet
-data = sheet_recap.get_all_values()
-if len(data) > 1:
-    df = pd.DataFrame(data[1:], columns=data[0])
-    
-    # Menambahkan kolom checkbox untuk hapus
-    df.insert(0, "Pilih", False)
-    
-    edited_df = st.data_editor(
-        df.tail(20), # Tampilkan 20 data terakhir agar ringan
-        column_config={"Pilih": st.column_config.CheckboxColumn(required=True)},
-        disabled=df.columns[1:], # Hanya kolom 'Pilih' yang bisa diedit
-        hide_index=True,
-    )
-
-    if st.button("🗑️ Hapus Baris Terpilih"):
-        # Logika hapus baris di GSheet memerlukan indeks asli
-        # Untuk keamanan, biasanya disarankan hapus manual, 
-        # namun di sini kita beri indikasi baris yang terpilih.
-        st.info("Fitur hapus sinkronisasi baris aktif. Pastikan data yang dipilih benar.")
-        # Logic: sheet_recap.delete_rows(index)
 else:
-    st.write("Belum ada data di sheet Report Recap.")
-
-st.caption("Cinnamoroll Python Anomaly v1.0")
+    st.warning("Silakan periksa konfigurasi Secrets di Streamlit Cloud kamu.")
