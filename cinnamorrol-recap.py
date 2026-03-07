@@ -103,7 +103,7 @@ st.markdown("<h2 style='text-align: center;'>⚡ WAHANA RECAP</h2>", unsafe_allo
 col_l, col_r = st.columns([1, 1.2])
 
 with col_l:
-    st.markdown("### 🏹 Laser Focus Input")
+    st.markdown("### 🏹 Sandbox Input")
     st.info("Honeywell Auto-Enter akan langsung memindahkan data ke tabel antrean.")
     
     # Widget Input dengan Key Dinamis (Trik untuk auto-clear)
