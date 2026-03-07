@@ -124,7 +124,7 @@ with st.sidebar:
 col_l, col_r = st.columns([1, 1.2])
 
 with col_l:
-    st.markdown("### 🏹 Rapid Scan")
+    st.markdown("### 🏹 SandBox Scan")
     st.text_input("SCAN DI SINI", key=f"barcode_in_{st.session_state['input_key']}", on_change=process_rapid_input)
     
     if st.button("🚀 SINKRON KE CLOUD", use_container_width=True, type="primary"):
