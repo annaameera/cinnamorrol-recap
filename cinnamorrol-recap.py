@@ -11,7 +11,7 @@ from pyzbar.pyzbar import decode
 import pytz # Library untuk zona waktu
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap v5.6", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Wahana Recap", page_icon="☁️", layout="wide")
 
 # Setting Zona Waktu Indonesia (WIB)
 tz_indo = pytz.timezone('Asia/Jakarta')
@@ -80,7 +80,7 @@ def save_data(barcode_val, date_obj):
 
 # --- UI DASHBOARD ---
 if sheet_master:
-    st.markdown("<h1 class='main-title'>☁️ WAHANA RECAP v5.6</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title'>☁️ WAHANA RECAP</h1>", unsafe_allow_html=True)
     
     col_left, col_right = st.columns([1, 1.2])
 
@@ -120,7 +120,7 @@ if sheet_master:
                     st.rerun()
 
     with col_right:
-        st.markdown("### 📊 Mini Table (Hanya A, B, C)")
+        st.markdown("### 📊 Mini Table")
         try:
             raw_data = sheet_master.get_all_values()
             
@@ -151,7 +151,7 @@ if sheet_master:
                     key="table_v56"
                 )
 
-                if st.button("🗑️ CLEAR DATA TERPILIH (A-C)"):
+                if st.button("🗑️ CLEAR DATA TERPILIH"):
                     to_clear = edited_df[edited_df["Pilih"] == True]["Gsheet_Row"].tolist()
                     if to_clear:
                         # Logika Hapus Aman: Hanya mengosongkan range A:C di baris tersebut
@@ -169,4 +169,4 @@ if sheet_master:
         except Exception as e:
             st.error(f"Gagal memuat tabel: {e}")
 
-st.caption("v5.6 - WIB 24h & Safe Range Clear (A-C Only)")
+st.caption("v5.6")
