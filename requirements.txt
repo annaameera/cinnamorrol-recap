@@ -6,3 +6,4 @@ opencv-python-headless
 numpy
 pyzbar
 streamlit-webrtc
+pytz
