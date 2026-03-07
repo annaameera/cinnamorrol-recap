@@ -20,6 +20,7 @@ st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #0ea5e9 0%, #e0f2fe 100%); }
     .main-title { color: #000; font-weight: 900; text-align: center; font-size: 2.5rem; }
+    div[data-testid="stForm"] { background: rgba(255, 255, 255, 0.3); border-radius: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -32,7 +33,6 @@ def init_gsheet():
         client = gspread.authorize(creds)
         url = "https://docs.google.com/spreadsheets/d/1vlwLdTxPLDnDkrn4luNKnRr_SH5TG-YJXK5NZAdWCVQ/edit"
         spreadsheet = client.open_by_url(url)
-        # Mengambil worksheet spesifik berdasarkan nama
         return spreadsheet.worksheet("Report Recap")
     except Exception as e:
         st.error(f"Koneksi Gagal: {e}")
@@ -46,21 +46,14 @@ def save_data(barcode_val, date_obj):
     try:
         ts = datetime.now().strftime("%H:%M:%S")
         sheet_daily_name = date_obj.strftime("%d_%m_%Y_Rekap Wahana")
-        
-        # Ambil kolom B (Barcode) untuk cek duplikat
         all_b = sheet_master.col_values(2)
         if barcode_val in all_b:
             st.toast(f"⚠️ DUPLIKAT: {barcode_val}", icon="⚠️")
             return False
-
-        # Hitung baris berikutnya berdasarkan kolom B yang terisi
         next_row = len(all_b) + 1
-        
-        # Update Master (Kolom B dan C)
         sheet_master.update_acell(f'B{next_row}', barcode_val)
         sheet_master.update_acell(f'C{next_row}', ts)
         
-        # Update Daily
         try:
             sh = sheet_master.spreadsheet
             ws_daily = sh.worksheet(sheet_daily_name)
@@ -68,7 +61,6 @@ def save_data(barcode_val, date_obj):
             ws_daily = sh.add_worksheet(title=sheet_daily_name, rows="1000", cols="5")
             ws_daily.append_row(["Barcode", "Timestamp"])
         ws_daily.append_row([barcode_val, ts])
-        
         return True
     except Exception as e:
         st.error(f"Simpan Gagal: {e}")
@@ -77,14 +69,12 @@ def save_data(barcode_val, date_obj):
 # --- UI ---
 if sheet_master:
     st.markdown("<h1 class='main-title'>☁️ WAHANA RECAP</h1>", unsafe_allow_html=True)
-    
     col_in, col_tab = st.columns([1, 1.2])
 
     with col_in:
         date_pick = st.date_input("📅 TANGGAL", value=st.session_state['recap_date'])
         st.session_state['recap_date'] = date_pick
         
-        # WebRTC Scanner
         def video_callback(frame):
             img = frame.to_ndarray(format="bgr24")
             for obj in decode(img):
@@ -113,56 +103,53 @@ if sheet_master:
     with col_tab:
         st.markdown("### 📊 Recent Updates")
         try:
-            # Mengambil seluruh data dari sheet
+            # Ambil data murni
             raw_data = sheet_master.get_all_values()
             
-            if len(raw_data) > 1: # Harus lebih dari 1 (header + minimal 1 data)
-                # Menentukan header manual agar stabil
-                header_names = ["No", "Resi", "Timestamp"]
+            if len(raw_data) > 1:
+                # 1. Buat DataFrame dengan 'Original Row Index' agar tidak salah hapus
+                rows = []
+                for i, r in enumerate(raw_data[1:]):
+                    # i+2 karena: i mulai 0, +1 (untuk header), +1 (karena GSheet index mulai 1)
+                    actual_row_num = i + 2 
+                    content = (r + ["", "", ""])[:3]
+                    rows.append([actual_row_num] + content)
+
+                df = pd.DataFrame(rows, columns=["Gsheet_Row", "No", "Barcode", "Timestamp"])
                 
-                # Saring data: Ambil baris ke-2 dst, lalu ambil kolom A, B, C
-                # any(r) memastikan baris tidak benar-benar kosong
-                clean_rows = []
-                for r in raw_data[1:]:
-                    if len(r) >= 2 and (r[0] or r[1]): # Minimal Kolom A atau B ada isinya
-                        # Pastikan list memiliki 3 elemen (A, B, C)
-                        row_content = (r + ["", "", ""])[:3] 
-                        clean_rows.append(row_content)
+                # 2. Reverse Tampilan (Terbaru di atas)
+                df_view = df.iloc[::-1].reset_index(drop=True)
+                df_view.insert(0, "Pilih", False)
 
-                if clean_rows:
-                    df = pd.DataFrame(clean_rows, columns=header_names)
-                    
-                    # Tampilkan data terbaru di atas
-                    df_view = df.iloc[::-1].reset_index(drop=True)
-                    df_view.insert(0, "Pilih", False)
+                # 3. Tampilkan Editor (Sembunyikan Gsheet_Row dari User)
+                edited_df = st.data_editor(
+                    df_view.head(25),
+                    column_config={
+                        "Pilih": st.column_config.CheckboxColumn(required=True),
+                        "Gsheet_Row": None, # Kolom ini disembunyikan
+                        "No": st.column_config.TextColumn(width="small"),
+                        "Barcode": st.column_config.TextColumn(width="medium"),
+                    },
+                    disabled=["No", "Barcode", "Timestamp"],
+                    hide_index=True,
+                    use_container_width=True,
+                    key="editor_final"
+                )
 
-                    edited_df = st.data_editor(
-                        df_view.head(20),
-                        column_config={"Pilih": st.column_config.CheckboxColumn(required=True)},
-                        disabled=header_names,
-                        hide_index=True,
-                        use_container_width=True,
-                        key="editor_v53"
-                    )
-
-                    if st.button("🗑️ HAPUS TERPILIH"):
-                        selected = edited_df[edited_df["Pilih"] == True].index.tolist()
-                        if selected:
-                            # Kalkulasi baris: Total baris di raw_data - index tampilan
-                            total_rows_sheet = len(raw_data)
-                            for idx in sorted(selected):
-                                row_to_delete = total_rows_sheet - idx
-                                sheet_master.delete_rows(int(row_to_delete))
-                            
-                            st.toast("🗑️ Terhapus!")
-                            time.sleep(1)
-                            st.rerun()
-                else:
-                    st.info("Data ditemukan, tapi kolom A & B kosong.")
+                # 4. Logika Hapus yang Aman
+                if st.button("🗑️ HAPUS TERPILIH"):
+                    selected_rows = edited_df[edited_df["Pilih"] == True]["Gsheet_Row"].tolist()
+                    if selected_rows:
+                        # Hapus dari indeks terbesar ke terkecil agar tidak terjadi pergeseran baris
+                        for row_num in sorted(selected_rows, reverse=True):
+                            sheet_master.delete_rows(int(row_num))
+                        
+                        st.toast(f"🗑️ {len(selected_rows)} Data Terhapus!")
+                        time.sleep(1)
+                        st.rerun()
             else:
                 st.info("Belum ada data di 'Report Recap'.")
-                
         except Exception as e:
             st.error(f"Error Table: {e}")
 
-st.caption("v5.3 - Debugged Table Fetching")
+st.caption("v5.4 - Row Mapping Fix for Delete")
