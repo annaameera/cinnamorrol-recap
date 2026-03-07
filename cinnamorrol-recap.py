@@ -6,13 +6,15 @@ from datetime import datetime
 import time
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Wahana Recap", page_icon="📸", layout="wide")
 
-# --- INISIALISASI SESSION STATE (Agar Kalender Tidak Reset) ---
+# --- INISIALISASI SESSION STATE ---
 if 'recap_date' not in st.session_state:
     st.session_state['recap_date'] = datetime.now()
+if 'last_scan' not in st.session_state:
+    st.session_state['last_scan'] = ""
 
-# --- CUSTOM CSS: BLUE GLOSSY CRYSTAL THEME ---
+# --- CUSTOM CSS: BLUE GLOSSY CRYSTAL ---
 st.markdown("""
     <style>
     .stApp {
@@ -20,60 +22,17 @@ st.markdown("""
         background-attachment: fixed;
     }
     .main-title {
-        color: #000000;
-        font-family: 'Segoe UI', Tahoma, Geneva, sans-serif;
-        font-weight: 900;
-        text-align: center;
-        font-size: 3.5rem;
-        margin-bottom: 0px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
+        color: #000000; font-family: 'Segoe UI'; font-weight: 900;
+        text-align: center; font-size: 3rem; text-transform: uppercase;
     }
     div[data-testid="stForm"], .glossy-card {
         background: rgba(255, 255, 255, 0.2);
-        backdrop-filter: blur(20px) saturate(200%);
-        -webkit-backdrop-filter: blur(20px) saturate(200%);
-        border-radius: 30px;
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        box-shadow: 0 15px 35px 0 rgba(0, 0, 0, 0.1);
-        padding: 30px;
-        color: #000000;
+        backdrop-filter: blur(20px);
+        border-radius: 30px; border: 1px solid rgba(255, 255, 255, 0.4);
+        padding: 20px; color: #000000;
     }
-    .stTextInput>div>div>input {
-        background: rgba(255, 255, 255, 0.6) !important;
-        border-radius: 15px !important;
-        border: 2px solid rgba(255, 255, 255, 0.8) !important;
-        color: #000000 !important;
-        font-weight: bold;
-        font-size: 1.1rem;
-    }
-    .stButton>button {
-        background: linear-gradient(135deg, #ffffff 0%, #bae6fd 100%);
-        color: #0369a1 !important;
-        border-radius: 50px;
-        border: 1px solid rgba(255, 255, 255, 0.5);
-        font-weight: 800;
-        padding: 15px 40px;
-        transition: all 0.3s ease-in-out;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        width: 100%;
-        text-transform: uppercase;
-    }
-    .stButton>button:hover {
-        transform: translateY(-3px) scale(1.02);
-        background: #ffffff;
-        box-shadow: 0 10px 25px rgba(255, 255, 255, 0.4);
-        color: #0ea5e9 !important;
-    }
-    .stDataFrame {
-        background: rgba(255, 255, 255, 0.4);
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.6);
-    }
-    [data-testid="stSidebar"] {
-        background-color: rgba(14, 165, 233, 0.8);
-        backdrop-filter: blur(10px);
-    }
+    /* Tombol Scanner Gaya Modern */
+    .stCameraInput > label { display: none; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -93,109 +52,97 @@ def init_gsheet():
 
 sh = init_gsheet()
 
+def save_to_gsheet(barcode_data, date_obj):
+    """Fungsi helper untuk simpan data agar bisa dipanggil otomatis"""
+    try:
+        sheet_recap = sh.worksheet("Report Recap")
+        ts = datetime.now().strftime("%H:%M:%S")
+        sheet_daily_name = date_obj.strftime("%d_%m_%Y_Rekap Wahana")
+        
+        # Anti-Duplikat
+        all_b_values = sheet_recap.col_values(2)[1:1340]
+        if barcode_data in all_b_values:
+            return "duplicate", barcode_data
+        
+        # Update Main Recap
+        next_row = len(sheet_recap.col_values(2)) + 1
+        sheet_recap.update_acell(f'B{next_row}', barcode_data)
+        sheet_recap.update_acell(f'C{next_row}', ts)
+        
+        # Update Daily Sheet
+        try:
+            ws_daily = sh.worksheet(sheet_daily_name)
+        except gspread.WorksheetNotFound:
+            ws_daily = sh.add_worksheet(title=sheet_daily_name, rows="1000", cols="5")
+            ws_daily.append_row(["Data Barcode", "Timestamp"])
+        
+        ws_daily.append_row([barcode_data, ts])
+        return "success", barcode_data
+    except Exception as e:
+        return "error", str(e)
+
 if sh:
-    sheet_recap = sh.worksheet("Report Recap")
+    st.markdown("<h1 class='main-title'>📸 SCANNER WAHANA</h1>", unsafe_allow_html=True)
     
-    st.markdown("<h1 class='main-title'>☁️ WAHANA RECAP</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#000000; font-weight:600;'>Recap Wahana</p>", unsafe_allow_html=True)
-
-    # --- INPUT SECTION ---
-    with st.form("main_scan_form", clear_on_submit=True):
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            # Menggunakan session_state agar tanggal tidak berubah saat rerun
-            date_pick = st.date_input("📅 TANGGAL REKAP", value=st.session_state['recap_date'])
-            st.session_state['recap_date'] = date_pick # Simpan pilihan user
-            
-        with c2:
-            barcode = st.text_input("📥 SANDBOX INPUT (Honeywell)", placeholder="Arahkan kursor & scan sekarang...")
+    # --- BAGIAN SCANNER OTOMATIS ---
+    with st.container():
+        st.markdown("### 📱 Camera QR Scanner")
+        # Menggunakan camera_input sebagai trigger otomatis
+        img_file = st.camera_input("Arahkan QR Code ke Kamera")
         
-        btn_submit = st.form_submit_button("SIMPAN DATA KE GSHEET ✨")
-
-    if btn_submit:
-        if not barcode:
-            st.toast("Scan Gagal! Input Kosong.", icon="❌")
-            st.error("❌ ERROR: Tidak ada data yang di-scan!")
-        else:
-            ts = datetime.now().strftime("%H:%M:%S")
-            sheet_daily_name = date_pick.strftime("%d_%m_%Y_Rekap Wahana")
-
-            # Logika Anti-Duplikat
-            all_b_values = sheet_recap.col_values(2)[1:1340]
+        if img_file:
+            # Di dunia nyata, browser akan menangkap gambar. 
+            # Untuk 'Auto Enter' Barcode, kita asumsikan input dari Honeywell tetap ada
+            # Namun jika ingin Full Camera QR, kita butuh library 'pyzbar' atau 'opencv'
+            import cv2
+            import numpy as np
             
-            if barcode in all_b_values:
-                st.toast(f"DUPLIKAT: {barcode}", icon="⚠️")
-                st.warning(f"⚠️ DATA DUPLIKAT: Barcode '{barcode}' sudah pernah tersimpan!")
-            else:
-                try:
-                    # 1. Update Report Recap
-                    next_row = len(sheet_recap.col_values(2)) + 1
-                    if next_row <= 1340:
-                        sheet_recap.update_acell(f'B{next_row}', barcode)
-                        sheet_recap.update_acell(f'C{next_row}', ts)
-                        
-                        # 2. Update Sheet Harian
-                        try:
-                            ws_daily = sh.worksheet(sheet_daily_name)
-                        except gspread.WorksheetNotFound:
-                            ws_daily = sh.add_worksheet(title=sheet_daily_name, rows="1000", cols="5")
-                            ws_daily.append_row(["Data Barcode", "Timestamp"])
-                        
-                        ws_daily.append_row([barcode, ts])
-                        
-                        st.toast(f"BERHASIL: {barcode}", icon="✅")
-                        st.success(f"✅ BERHASIL: '{barcode}' telah diproses!")
-                        time.sleep(0.5)
+            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+            opencv_img = cv2.imdecode(file_bytes, 1)
+            detector = cv2.QRCodeDetector()
+            data, points, _ = detector.detectAndDecode(opencv_img)
+            
+            if data:
+                if data != st.session_state['last_scan']:
+                    status, msg = save_to_gsheet(data, st.session_state['recap_date'])
+                    st.session_state['last_scan'] = data # Cegah loop simpan
+                    
+                    if status == "success":
+                        st.toast(f"Tersimpan: {data}", icon="✅")
+                        st.success(f"Data {data} Berhasil Masuk!")
+                        time.sleep(1)
                         st.rerun()
-                    else:
-                        st.error("❌ LIMIT TERCAPAI: Sheet penuh!")
-                except Exception as e:
-                    st.error(f"Gagal: {e}")
-
-    # --- MINI MONITOR (REVERSE ORDER) ---
-    st.markdown("---")
-    st.markdown("<h3 style='color:#000000;'>📊 Recent Updates</h3>", unsafe_allow_html=True)
-
-    raw_data = sheet_recap.get_all_values()
-    if len(raw_data) > 1:
-        header = raw_data[0][:3]
-        if not header[0]: header[0] = "No"
-        if not header[1]: header[1] = "Data Barcode"
-        if not header[2]: header[2] = "Timestamp"
-
-        # Ambil data, buat DataFrame, dan balik urutannya ([::-1])
-        data_rows = [r[:3] for r in raw_data[1:] if len(r) >= 2]
-        df = pd.DataFrame(data_rows, columns=header)
-        
-        # Membalik urutan agar data terbaru ada di index 0
-        df_reversed = df.iloc[::-1].reset_index(drop=True)
-        df_reversed.insert(0, "Pilih", False)
-
-        edited_df = st.data_editor(
-            df_reversed.head(15), # Tampilkan 15 data terbaru
-            column_config={"Pilih": st.column_config.CheckboxColumn(required=True)},
-            disabled=[c for c in df_reversed.columns if c != "Pilih"],
-            hide_index=True,
-            use_container_width=True,
-            key="glossy_monitor"
-        )
-
-        if st.button("🗑️ HAPUS BARIS TERPILIH"):
-            selected_indices = edited_df[edited_df["Pilih"] == True].index.tolist()
-            if selected_indices:
-                # Karena data di-reverse, kita harus hitung posisi aslinya di GSheet
-                total_rows_in_sheet = len(raw_data)
-                for idx in selected_indices:
-                    # Logika: Baris terakhir di GSheet = baris pertama di DF Reversed
-                    # Baris di GSheet = Total_Baris - index_di_df_reversed
-                    row_to_delete = total_rows_in_sheet - idx
-                    sheet_recap.delete_rows(int(row_to_delete))
-                
-                st.toast("Data terhapus!", icon="🗑️")
-                st.rerun()
+                    elif status == "duplicate":
+                        st.warning(f"Data {data} sudah ada!")
             else:
-                st.info("Pilih data dulu, Sayang.")
-    else:
-        st.info("Belum ada data terekam.")
+                st.info("QR Code tidak terdeteksi. Pastikan gambar jelas.")
 
-st.caption("Cinnamoroll Wahana Inventory System v2.1 - Persistent & Reversed")
+    # --- INPUT MANUAL (TETAP TERSEDIA) ---
+    with st.expander("⌨️ Input Manual / Honeywell Scan"):
+        with st.form("manual_form", clear_on_submit=True):
+            date_pick = st.date_input("Tanggal", value=st.session_state['recap_date'])
+            st.session_state['recap_date'] = date_pick
+            manual_barcode = st.text_input("Barcode Value")
+            submit_manual = st.form_submit_button("Simpan Manual")
+            
+            if submit_manual and manual_barcode:
+                status, msg = save_to_gsheet(manual_barcode, date_pick)
+                if status == "success":
+                    st.success("Data Tersimpan!")
+                    st.rerun()
+
+    # --- MINI MONITOR (REVERSED) ---
+    st.markdown("---")
+    st.markdown("### 📊 Live Monitor")
+    
+    sheet_recap = sh.worksheet("Report Recap")
+    raw_data = sheet_recap.get_all_values()
+    
+    if len(raw_data) > 1:
+        df = pd.DataFrame(raw_data[1:], columns=["No", "Data Barcode", "Timestamp"])
+        df_view = df.iloc[::-1].head(10) # Tampilkan 10 terbaru
+        st.table(df_view) # Table lebih ringan untuk mobile
+    else:
+        st.info("Belum ada data.")
+
+st.caption("Cinnamoroll Wahana System v3.0 - Auto Camera Mode")
