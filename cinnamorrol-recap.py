@@ -11,7 +11,7 @@ from pyzbar.pyzbar import decode
 import pytz
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Strict Anti-Dup", page_icon="🚫", layout="wide")
+st.set_page_config(page_title="Wahana Recap", page_icon="🚫", layout="wide")
 tz_indo = pytz.timezone('Asia/Jakarta')
 
 if 'recap_date' not in st.session_state:
