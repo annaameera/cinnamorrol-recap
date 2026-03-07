@@ -14,22 +14,13 @@ from pyzbar.pyzbar import decode
 st.set_page_config(page_title="Wahana Recap", layout="wide")
 tz_indo = pytz.timezone('Asia/Jakarta')
 
-# --- INISIALISASI BUFFER ---
+# --- INISIALISASI SESSION STATE ---
 if 'temp_data' not in st.session_state:
     st.session_state['temp_data'] = []
 if 'input_key' not in st.session_state:
     st.session_state['input_key'] = 0
-if 'selected_date' not in st.session_state:
-    st.session_state['selected_date'] = datetime.now(tz_indo).date()
-
-# --- CUSTOM CSS ---
-st.markdown("""
-    <style>
-    .stApp { background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%); }
-    .main-card { background: white; padding: 20px; border-radius: 15px; border: 1px solid #bae6fd; }
-    input { font-size: 1.4rem !important; font-weight: bold; color: #0369a1 !important; }
-    </style>
-    """, unsafe_allow_html=True)
+if 'selected_user' not in st.session_state:
+    st.session_state['selected_user'] = None
 
 # --- KONEKSI GSHEET ---
 @st.cache_resource
@@ -44,117 +35,121 @@ def init_gsheet_client():
 client = init_gsheet_client()
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1vlwLdTxPLDnDkrn4luNKnRr_SH5TG-YJXK5NZAdWCVQ/edit"
 
-# --- FUNGSI PROSES INPUT (RAPID-FIRE) ---
+# --- FUNGSI AMBIL DATA KARYAWAN (KOLOM D & E) ---
+def get_employee_list():
+    try:
+        ss = client.open_by_url(spreadsheet_url)
+        ws = ss.worksheet("Report Recap")
+        # Ambil kolom D (NIP) dan E (Nama)
+        nips = ws.col_values(4)[1:] # Mulai baris 2
+        names = ws.col_values(5)[1:] # Mulai baris 2
+        
+        # Gabungkan menjadi format "Nama - NIP"
+        employees = []
+        for nip, name in zip(nips, names):
+            if nip.strip() and name.strip():
+                employees.append(f"{name.strip()} - {nip.strip()}")
+        return sorted(list(set(employees))) # Unik & urut abjad
+    except:
+        return ["Admin - 000"]
+
+# --- FUNGSI PROSES INPUT ---
 def process_rapid_input():
     key = f"barcode_in_{st.session_state['input_key']}"
     val = st.session_state.get(key, "").strip().upper()
-    
     if val:
         buffer_codes = [d['barcode'] for d in st.session_state['temp_data']]
         if val not in buffer_codes:
             ts = datetime.now(tz_indo).strftime("%H:%M:%S")
-            st.session_state['temp_data'].append({'barcode': val, 'time': ts})
-            st.toast(f"📥 Masuk Antrean: {val}")
-        else:
-            st.toast(f"⚠️ {val} sudah ada di antrean lokal!", icon="⚠️")
-        
+            st.session_state['temp_data'].append({
+                'barcode': val, 
+                'time': ts,
+                'petugas': st.session_state['selected_user']
+            })
+            st.toast(f"📥 Antrean: {val}")
         st.session_state['input_key'] += 1
 
-# --- FUNGSI SINKRONISASI KE SHEET TANGGAL (CALENDAR TARGET) ---
-def sync_to_calendar_sheet():
+# --- FUNGSI SINKRONISASI (MULTI-DEVICE & IDENTITY) ---
+def sync_with_identity():
     if not st.session_state['temp_data']:
-        st.warning("Antrean masih kosong, tembak barcode dulu!")
+        st.warning("Antrean kosong!")
+        return
+    if not st.session_state['selected_user']:
+        st.error("Pilih nama karyawan dulu!")
         return
 
-    # Nama Sheet Berdasarkan Kalender: DD_MM_YYYY_Rekap Wahana
-    sheet_name = st.session_state['selected_date'].strftime("%d_%m_%Y_Rekap Wahana")
+    target_date = datetime.now(tz_indo).date().strftime("%d_%m_%Y_Rekap Wahana")
 
-    with st.spinner(f"Menyinkronkan ke sheet: {sheet_name}..."):
+    with st.spinner("Mengunggah data dengan identitas petugas..."):
         try:
             ss = client.open_by_url(spreadsheet_url)
-            
-            # Cek apakah sheet sudah ada, jika belum buat baru
             try:
-                ws = ss.worksheet(sheet_name)
+                ws = ss.worksheet(target_date)
             except gspread.WorksheetNotFound:
-                ws = ss.add_worksheet(title=sheet_name, rows="1000", cols="5")
-                ws.append_row(["No", "Barcode", "Timestamp"]) # Header
-            
-            # Ambil data yang sudah ada di sheet tersebut untuk cek duplikat & nomor urut
-            existing_data = ws.get_all_values()
-            existing_barcodes = [str(r[1]).strip().upper() for r in existing_data[1:]] if len(existing_data) > 1 else []
-            
+                ws = ss.add_worksheet(title=target_date, rows="1000", cols="6")
+                ws.append_row(["No", "Barcode", "Timestamp", "Petugas (Nama-NIP)"])
+
+            existing_b = ws.col_values(2)
+            existing_clean = [str(b).strip().upper() for b in existing_b]
+
             rows_to_push = []
             for item in st.session_state['temp_data']:
-                if item['barcode'] not in existing_barcodes:
-                    no_urut = len(existing_data) + len(rows_to_push)
-                    rows_to_push.append([no_urut, item['barcode'], item['time']])
+                if item['barcode'] not in existing_clean:
+                    # Susun data: No (Rumus), Barcode, Jam, Nama-NIP
+                    rows_to_push.append(["=ROW()-1", item['barcode'], item['time'], item['petugas']])
             
             if rows_to_push:
-                ws.append_rows(rows_to_push)
-                st.session_state['temp_data'] = [] # Reset antrean lokal
-                st.success(f"🔥 Berhasil kirim {len(rows_to_push)} data ke '{sheet_name}'!")
+                ws.append_rows(rows_to_push, value_input_option='USER_ENTERED')
+                st.session_state['temp_data'] = []
+                st.success(f"✅ Sinkron {len(rows_to_push)} data berhasil!")
                 time.sleep(1)
                 st.rerun()
             else:
                 st.session_state['temp_data'] = []
-                st.info(f"Semua data di antrean sudah ada di sheet '{sheet_name}'.")
-                
+                st.info("Data sudah ada di Cloud.")
         except Exception as e:
-            st.error(f"Gagal sinkronisasi: {e}")
+            st.error(f"Error: {e}")
 
 # --- UI DASHBOARD ---
-st.markdown("<h2 style='text-align: center;'>⚡ WAHANA RECAP</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center;'>💼 WAHANA RECAP</h2>", unsafe_allow_html=True)
+
+# Sidebar untuk Identitas (Agar tidak berubah-ubah secara tidak sengaja)
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/1535/1535024.png", width=100)
+    st.header("Profil Petugas")
+    employee_options = get_employee_list()
+    st.session_state['selected_user'] = st.selectbox("Pilih Nama / NIP Anda:", employee_options)
+    st.info(f"Petugas Aktif: \n{st.session_state['selected_user']}")
 
 col_l, col_r = st.columns([1, 1.2])
 
 with col_l:
-    st.markdown("### 📅 Konfigurasi & Input")
+    st.markdown("### 🏹 Rapid Scan")
+    st.text_input("SCAN DI SINI", key=f"barcode_in_{st.session_state['input_key']}", on_change=process_rapid_input)
     
-    # Pilih Tanggal (Menentukan Nama Sheet Tujuan)
-    selected_date = st.date_input("PILIH TANGGAL REKAP", value=st.session_state['selected_date'])
-    st.session_state['selected_date'] = selected_date
-    
-    st.markdown("---")
-    
-    # Input Honeywell (Rapid Fire)
-    st.text_input(
-        "SCAN BARCODE (AUTO-ENTER)", 
-        key=f"barcode_in_{st.session_state['input_key']}", 
-        on_change=process_rapid_input,
-        placeholder="Tembak laser di sini..."
-    )
-    
-    st.write("")
-    if st.button("🚀 SINKRONKAN KE CLOUD", use_container_width=True, type="primary"):
-        sync_to_calendar_sheet()
-    
-    st.divider()
-    st.markdown("### 📸 Kamera Scan")
+    if st.button("🚀 SINKRON KE CLOUD", use_container_width=True, type="primary"):
+        sync_with_identity()
+
+    if st.session_state['temp_data']:
+        st.divider()
+        st.write("**Preview Antrean Lokal:**")
+        st.dataframe(pd.DataFrame(st.session_state['temp_data']).iloc[::-1], use_container_width=True)
+
+with col_r:
+    st.markdown("### 📸 Kamera")
     def video_callback(frame):
         img = frame.to_ndarray(format="bgr24")
         for obj in decode(img):
             code = obj.data.decode('utf-8').strip().upper()
-            buffer_codes = [d['barcode'] for d in st.session_state['temp_data']]
-            if code not in buffer_codes:
+            if not any(d['barcode'] == code for d in st.session_state['temp_data']):
                 ts = datetime.now(tz_indo).strftime("%H:%M:%S")
-                st.session_state['temp_data'].append({'barcode': code, 'time': ts})
+                st.session_state['temp_data'].append({
+                    'barcode': code, 
+                    'time': ts,
+                    'petugas': st.session_state['selected_user']
+                })
         return frame.from_ndarray(img, format="bgr24")
 
-    webrtc_streamer(key="cam_sync", video_frame_callback=video_callback, 
-                    media_stream_constraints={"video": True, "audio": False})
+    webrtc_streamer(key="cam_ent", video_frame_callback=video_callback, media_stream_constraints={"video": True, "audio": False})
 
-with col_r:
-    st.markdown(f"### 📋 Antrean Lokal (Target: {st.session_state['selected_date'].strftime('%d/%m/%Y')})")
-    
-    if st.session_state['temp_data']:
-        df_view = pd.DataFrame(st.session_state['temp_data']).iloc[::-1]
-        st.dataframe(df_view, use_container_width=True, height=450)
-        
-        if st.button("🗑️ Reset Antrean"):
-            st.session_state['temp_data'] = []
-            st.rerun()
-    else:
-        st.success("✨ Antrean kosong. Siap mulai rekap!")
-
-st.caption("v6.2")
+st.caption(f"v6.4 | Terhubung ke: {spreadsheet_url.split('/')[-2][:10]}... | User: {st.session_state['selected_user']}")
