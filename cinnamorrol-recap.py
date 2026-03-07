@@ -4,30 +4,21 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 from datetime import datetime
 import time
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
-from pyzbar.pyzbar import decode
+from streamlit_webrtc import webrtc_streamer
 import cv2
 import numpy as np
+from pyzbar.pyzbar import decode
 
-# --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap", page_icon="⚡", layout="wide")
+# --- CONFIG ---
+st.set_page_config(page_title="Wahana Auto-Scan", layout="wide")
 
-# --- SESSION STATE ---
+# --- SESSION STATE (Agar Tanggal & Data Aman) ---
 if 'recap_date' not in st.session_state:
     st.session_state['recap_date'] = datetime.now()
-if 'last_detected' not in st.session_state:
-    st.session_state['last_detected'] = None
+if 'last_code' not in st.session_state:
+    st.session_state['last_code'] = ""
 
-# --- CSS GLOSSY ---
-st.markdown("""
-    <style>
-    .stApp { background: linear-gradient(135deg, #0ea5e9 0%, #e0f2fe 100%); }
-    .main-title { color: #000; font-weight: 900; text-align: center; font-size: 2.5rem; }
-    div[data-testid="stExpander"] { background: rgba(255,255,255,0.2); border-radius: 20px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- KONEKSI GSHEET ---
+# --- KONEKSI ---
 @st.cache_resource
 def init_gsheet():
     try:
@@ -43,105 +34,77 @@ def init_gsheet():
 
 sh = init_gsheet()
 
-# --- LOGIKA SIMPAN DATA ---
-def push_data(barcode_val):
+# --- FUNGSI SIMPAN ---
+def auto_save(barcode_val):
+    if not barcode_val or barcode_val == st.session_state['last_code']:
+        return
+    
     try:
         sheet_recap = sh.worksheet("Report Recap")
         ts = datetime.now().strftime("%H:%M:%S")
-        date_str = st.session_state['recap_date'].strftime("%d_%m_%Y_Rekap Wahana")
         
-        # Cek Duplikat di kolom B
-        existing = sheet_recap.col_values(2)
-        if barcode_val in existing:
-            return False, "Duplikat"
+        # Cek Duplikat
+        all_val = sheet_recap.col_values(2)
+        if barcode_val in all_val:
+            st.warning(f"⚠️ {barcode_val} sudah ada!")
+            st.session_state['last_code'] = barcode_val
+            return
 
-        # Simpan ke Master Recap
-        next_row = len(existing) + 1
-        sheet_recap.update_acell(f'B{next_row}', barcode_val)
-        sheet_recap.update_acell(f'C{next_row}', ts)
-
-        # Simpan ke Sheet Harian
-        try:
-            ws_daily = sh.worksheet(date_str)
-        except gspread.WorksheetNotFound:
-            ws_daily = sh.add_worksheet(title=date_str, rows="1000", cols="5")
-            ws_daily.append_row(["Barcode", "Jam"])
+        # Simpan ke Master (Kolom B & C)
+        next_r = len(all_val) + 1
+        sheet_recap.update_acell(f'B{next_r}', barcode_val)
+        sheet_recap.update_acell(f'C{next_r}', ts)
         
-        ws_daily.append_row([barcode_val, ts])
-        return True, "Berhasil"
-    except:
-        return False, "Error System"
+        st.session_state['last_code'] = barcode_val
+        st.success(f"✅ Tersimpan: {barcode_val}")
+        time.sleep(0.5)
+        st.rerun()
+    except Exception as e:
+        st.error(f"Gagal simpan: {e}")
 
-# --- INTERFACE UTAMA ---
-if sh:
-    st.markdown("<h1 class='main-title'>⚡SCANNER WAHANA</h1>", unsafe_allow_html=True)
+# --- UI ---
+st.title("☁️ WAHANA REAL-TIME SCANNER")
+
+col_cam, col_tab = st.columns([1, 1])
+
+with col_cam:
+    st.session_state['recap_date'] = st.date_input("📅 Tanggal", value=st.session_state['recap_date'])
     
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("📸 Live Camera Scan")
-        # Kalender Persistent
-        date_input = st.date_input("Tanggal Rekap", value=st.session_state['recap_date'])
-        st.session_state['recap_date'] = date_input
-
-        # VIDEO TRANSFORMER UNTUK AUTO-DETEKSI
-        class BarcodeProcessor(VideoTransformerBase):
-            def transform(self, frame):
-                img = frame.to_ndarray(format="bgr24")
-                barcodes = decode(img)
-                for barcode in barcodes:
-                    data = barcode.data.decode('utf-8')
-                    # Gambar kotak di sekitar barcode untuk visual feedback
-                    (x, y, w, h) = barcode.rect
-                    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    
-                    if data != st.session_state.get('last_detected'):
-                        st.session_state['last_detected'] = data
-                        # Trigger simpan data
-                return img
-
-        webrtc_streamer(
-            key="scanner",
-            video_transformer_factory=BarcodeProcessor,
-            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-            media_stream_constraints={"video": True, "audio": False},
-        )
-
-        # Logic Auto-Enter setelah deteksi
-        if st.session_state['last_detected']:
-            barcode_now = st.session_state['last_detected']
-            success, msg = push_data(barcode_now)
-            if success:
-                st.toast(f"✅ TERDATA: {barcode_now}", icon="🚀")
-                st.session_state['last_detected'] = None # Reset agar bisa scan barcode lain
-                time.sleep(1)
-                st.rerun()
-            elif msg == "Duplikat":
-                st.warning(f"⚠️ {barcode_now} sudah pernah di-scan.")
-                st.session_state['last_detected'] = None
-
-    with col2:
-        st.subheader("📊 Recent Updates")
-        try:
-            sheet_recap = sh.worksheet("Report Recap")
-            raw = sheet_recap.get_all_values()
+    # SCANNER WEBRTC
+    def video_frame_callback(frame):
+        img = frame.to_ndarray(format="bgr24")
+        detected_barcodes = decode(img)
+        
+        for barcode in detected_barcodes:
+            data = barcode.data.decode('utf-8')
+            # Kirim data ke session state untuk diproses di luar thread video
+            st.session_state['detected_now'] = data
+            # Gambar kotak tanda scan berhasil
+            pts = np.array([barcode.polygon], np.int32)
+            cv2.polylines(img, [pts], True, (0, 255, 0), 3)
             
-            if len(raw) > 1:
-                # Perbaikan Logika Tabel Error:
-                # Ambil data, abaikan header, buat DF, lalu balik urutan
-                df = pd.DataFrame(raw[1:], columns=["No", "Barcode", "Waktu"])
-                df_reversed = df.iloc[::-1].reset_index(drop=True)
-                
-                # Tampilkan tabel statis (lebih stabil untuk auto-refresh)
-                st.dataframe(df_reversed.head(15), use_container_width=True, hide_index=True)
-                
-                if st.button("🗑️ Reset Terakhir (Hapus Baris Terbawah GSheet)"):
-                    sheet_recap.delete_rows(len(raw))
-                    st.toast("Baris terakhir dihapus!")
-                    st.rerun()
-            else:
-                st.info("Kosong")
-        except Exception as e:
-            st.error(f"Table Error: {e}")
+        return frame.from_ndarray(img, format="bgr24")
 
-st.caption("Cinnamoroll Wahana System v4.0 - Real-time WebRTC")
+    webrtc_streamer(
+        key="wahana-scan",
+        video_frame_callback=video_frame_callback,
+        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+        media_stream_constraints={"video": True, "audio": False}
+    )
+
+    # Proses hasil deteksi
+    if 'detected_now' in st.session_state:
+        auto_save(st.session_state['detected_now'])
+        del st.session_state['detected_now']
+
+with col_tab:
+    st.subheader("📊 Data Terbaru")
+    if sh:
+        ws = sh.worksheet("Report Recap")
+        res = ws.get_all_values()
+        if len(res) > 1:
+            df = pd.DataFrame(res[1:], columns=["No", "Barcode", "Jam"])
+            # Tampilkan 15 data terbaru di posisi atas
+            st.table(df.iloc[::-1].head(15))
+
+st.caption("v4.1 - Auto Enter & No-Click Scanner")
