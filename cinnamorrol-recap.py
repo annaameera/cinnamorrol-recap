@@ -8,12 +8,16 @@ from streamlit_webrtc import webrtc_streamer
 import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
+import pytz # Library untuk zona waktu
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap v5.5", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Wahana Recap v5.6", page_icon="☁️", layout="wide")
+
+# Setting Zona Waktu Indonesia (WIB)
+tz_indo = pytz.timezone('Asia/Jakarta')
 
 if 'recap_date' not in st.session_state:
-    st.session_state['recap_date'] = datetime.now()
+    st.session_state['recap_date'] = datetime.now(tz_indo)
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -24,7 +28,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- KONEKSI GSHEET (Tanpa Cache) ---
+# --- KONEKSI GSHEET ---
 def init_gsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -38,14 +42,14 @@ def init_gsheet():
         st.error(f"Koneksi Gagal: {e}")
         return None
 
-# Panggil koneksi setiap kali skrip dijalankan (agar data fresh)
 sheet_master = init_gsheet()
 
 # --- FUNGSI SIMPAN DATA ---
 def save_data(barcode_val, date_obj):
     if not barcode_val: return False
     try:
-        ts = datetime.now().strftime("%H:%M:%S")
+        # Timestamp Indonesia Format 24 Jam
+        ts = datetime.now(tz_indo).strftime("%H:%M:%S")
         sheet_daily_name = date_obj.strftime("%d_%m_%Y_Rekap Wahana")
         
         # Ambil kolom B untuk cek duplikat & hitung baris
@@ -56,7 +60,7 @@ def save_data(barcode_val, date_obj):
             
         next_row = len(all_b) + 1
         
-        # Update Master (Kolom B & C)
+        # Update Master (Hanya Kolom B & C)
         sheet_master.update_acell(f'B{next_row}', barcode_val)
         sheet_master.update_acell(f'C{next_row}', ts)
         
@@ -76,7 +80,7 @@ def save_data(barcode_val, date_obj):
 
 # --- UI DASHBOARD ---
 if sheet_master:
-    st.markdown("<h1 class='main-title'>☁️ WAHANA RECAP v5.5</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title'>☁️ WAHANA RECAP v5.6</h1>", unsafe_allow_html=True)
     
     col_left, col_right = st.columns([1, 1.2])
 
@@ -106,7 +110,7 @@ if sheet_master:
                 time.sleep(1)
                 st.rerun()
 
-        # 2. Input Manual / Honeywell
+        # 2. Input Manual
         with st.form("manual_form", clear_on_submit=True):
             barcode_manual = st.text_input("Barcode Value (Manual/Honeywell)")
             if st.form_submit_button("SIMPAN DATA ✨") and barcode_manual:
@@ -116,32 +120,27 @@ if sheet_master:
                     st.rerun()
 
     with col_right:
-        st.markdown("### 📊 Mini Table (A, B, C)")
+        st.markdown("### 📊 Mini Table (Hanya A, B, C)")
         try:
-            # Mengambil data terbaru secara langsung tanpa filter cache
             raw_data = sheet_master.get_all_values()
             
             if len(raw_data) > 1:
-                # Siapkan baris data dengan mapping baris asli GSheet
                 header_names = ["No", "Barcode", "Timestamp"]
                 rows = []
                 for i, r in enumerate(raw_data[1:]):
-                    # Simpan index baris asli (header=1, data mulai 2)
                     actual_row_num = i + 2
-                    # Pastikan ambil kolom A, B, C (0, 1, 2)
+                    # Ambil hanya kolom A, B, C (0, 1, 2)
                     clean_row = (r + ["", "", ""])[:3]
                     rows.append([actual_row_num] + clean_row)
 
-                # Buat DataFrame (Tanpa sorting, data baru otomatis di bawah)
                 df = pd.DataFrame(rows, columns=["Gsheet_Row", "No", "Barcode", "Timestamp"])
                 df.insert(0, "Pilih", False)
 
-                # Editor Tabel
                 edited_df = st.data_editor(
                     df,
                     column_config={
                         "Pilih": st.column_config.CheckboxColumn(required=True),
-                        "Gsheet_Row": None, # Sembunyikan kolom index teknis
+                        "Gsheet_Row": None, 
                         "No": st.column_config.TextColumn(width="small"),
                         "Barcode": st.column_config.TextColumn(width="medium"),
                         "Timestamp": st.column_config.TextColumn(width="small")
@@ -149,23 +148,25 @@ if sheet_master:
                     disabled=["No", "Barcode", "Timestamp"],
                     hide_index=True,
                     use_container_width=True,
-                    key="table_v55"
+                    key="table_v56"
                 )
 
-                # Logika Hapus
-                if st.button("🗑️ HAPUS BARIS TERPILIH"):
-                    to_delete = edited_df[edited_df["Pilih"] == True]["Gsheet_Row"].tolist()
-                    if to_delete:
-                        # Hapus dari baris terbesar ke terkecil agar index tidak bergeser
-                        for row_num in sorted(to_delete, reverse=True):
-                            sheet_master.delete_rows(int(row_num))
+                if st.button("🗑️ CLEAR DATA TERPILIH (A-C)"):
+                    to_clear = edited_df[edited_df["Pilih"] == True]["Gsheet_Row"].tolist()
+                    if to_clear:
+                        # Logika Hapus Aman: Hanya mengosongkan range A:C di baris tersebut
+                        # Agar data di kolom D dan seterusnya tidak bergeser atau hilang
+                        for row_num in to_clear:
+                            # Menghapus cell A, B, dan C pada baris terpilih
+                            range_to_clear = f'A{row_num}:C{row_num}'
+                            sheet_master.batch_clear([range_to_clear])
                         
-                        st.toast(f"🗑️ {len(to_delete)} Data Terhapus!")
+                        st.toast(f"🗑️ {len(to_clear)} Data di Kolom A-C Dibersihkan!")
                         time.sleep(1)
                         st.rerun()
             else:
-                st.info("Tabel kosong. Silakan input data.")
+                st.info("Tabel kosong.")
         except Exception as e:
             st.error(f"Gagal memuat tabel: {e}")
 
-st.caption("v5.5 - Data Terurut Sesuai Input (Terbaru di Bawah)")
+st.caption("v5.6 - WIB 24h & Safe Range Clear (A-C Only)")
