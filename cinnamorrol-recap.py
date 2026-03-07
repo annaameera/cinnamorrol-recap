@@ -4,35 +4,33 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 from datetime import datetime
 import time
+import pytz
 from streamlit_webrtc import webrtc_streamer
 import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
-import pytz
 
-# --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap", page_icon="🛡️", layout="wide")
+# --- KONFIGURASI ---
+st.set_page_config(page_title="Wahana Recap", layout="wide")
 tz_indo = pytz.timezone('Asia/Jakarta')
 
-# --- INISIALISASI MEMORI JANGKA PENDEK (BUFFER) ---
-if 'recap_date' not in st.session_state:
-    st.session_state['recap_date'] = datetime.now(tz_indo)
-if 'last_processed_code' not in st.session_state:
-    st.session_state['last_processed_code'] = ""
-if 'session_buffer' not in st.session_state:
-    # Menyimpan daftar scan dalam sesi ini agar tidak double-input dari alat scan fisik
-    st.session_state['session_buffer'] = []
+# --- INISIALISASI BUFFER (KUNCI KECEPATAN) ---
+if 'temp_data' not in st.session_state:
+    st.session_state['temp_data'] = [] # Data yang baru masuk tapi belum sinkron ke Cloud
+if 'last_processed' not in st.session_state:
+    st.session_state['last_processed'] = ""
 
-# --- CUSTOM CSS ---
+# --- CSS GLOSSY ---
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(135deg, #0ea5e9 0%, #e0f2fe 100%); }
-    .main-title { color: #000; font-weight: 900; text-align: center; font-size: 2.5rem; text-transform: uppercase; }
-    div[data-testid="stForm"] { background: rgba(255, 255, 255, 0.3); border-radius: 20px; padding: 15px; }
+    .stApp { background: linear-gradient(135deg, #f0f9ff 0%, #c7d2fe 100%); }
+    .input-box { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .status-sync { color: #4338ca; font-weight: bold; font-size: 0.9rem; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- KONEKSI GSHEET ---
+@st.cache_resource
 def init_gsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -40,148 +38,103 @@ def init_gsheet():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
         url = "https://docs.google.com/spreadsheets/d/1vlwLdTxPLDnDkrn4luNKnRr_SH5TG-YJXK5NZAdWCVQ/edit"
-        spreadsheet = client.open_by_url(url)
-        return spreadsheet.worksheet("Report Recap")
-    except Exception as e:
-        st.error(f"Koneksi Gagal: {e}")
-        return None
+        return client.open_by_url(url).worksheet("Report Recap")
+    except: return None
 
 sheet_master = init_gsheet()
 
-# --- FUNGSI SIMPAN DATA (BUFFERED VALIDATION) ---
-def save_data(barcode_val, date_obj):
-    if not barcode_val: return False
+# --- FUNGSI TURBO SAVE (MENGHINDARI LOADING LAMA) ---
+def turbo_input(barcode_val):
+    code = str(barcode_val).strip().upper()
+    if not code or code == st.session_state['last_processed']:
+        return
     
-    # 1. STANDARISASI DATA
-    clean_barcode = str(barcode_val).strip().upper()
-    
-    # 2. LAPIS 1: CEK BUFFER LOKAL (Mencegah double-tap alat scan fisik)
-    if clean_barcode == st.session_state['last_processed_code']:
-        return False
-        
-    try:
-        # 3. LAPIS 2: CEK DATABASE GSHEET
-        # Ambil kolom B dan bersihkan datanya
-        existing_barcodes = [str(b).strip().upper() for b in sheet_master.col_values(2)]
-        
-        if clean_barcode in existing_barcodes:
-            st.toast(f"🚫 DUPLIKAT DI GSHEET: {clean_barcode}", icon="❌")
-            st.session_state['last_processed_code'] = clean_barcode
-            return False
-            
-        # Jika benar-benar baru, simpan
-        ts = datetime.now(tz_indo).strftime("%H:%M:%S")
-        sheet_daily_name = date_obj.strftime("%d_%m_%Y_Rekap Wahana")
-        
-        # Update Master
-        next_row = len(existing_barcodes) + 1
-        sheet_master.update_acell(f'B{next_row}', clean_barcode)
-        sheet_master.update_acell(f'C{next_row}', ts)
-        
-        # Update Daily
-        try:
-            sh = sheet_master.spreadsheet
-            ws_daily = sh.worksheet(sheet_daily_name)
-        except gspread.WorksheetNotFound:
-            ws_daily = sh.add_worksheet(title=sheet_daily_name, rows="1000", cols="5")
-            ws_daily.append_row(["Barcode", "Timestamp"])
-        ws_daily.append_row([clean_barcode, ts])
-        
-        # Simpan ke memori sementara agar tidak terulang
-        st.session_state['last_processed_code'] = clean_barcode
-        return True
-    except Exception as e:
-        st.error(f"Database Error: {e}")
-        return False
+    # Cek Duplikat di Buffer Lokal (Super Cepat)
+    buffer_codes = [d['barcode'] for d in st.session_state['temp_data']]
+    if code in buffer_codes:
+        st.toast(f"⚠️ Kode {code} sudah ada di antrean!", icon="⚠️")
+        return
 
-# --- UI DASHBOARD ---
-if sheet_master:
-    st.markdown("<h1 class='main-title'>🛡️ WAHANA RECAP</h1>", unsafe_allow_html=True)
-    
-    col_l, col_r = st.columns([1, 1.2])
+    # Simpan ke memori sementara (Instan)
+    ts = datetime.now(tz_indo).strftime("%H:%M:%S")
+    st.session_state['temp_data'].append({'barcode': code, 'time': ts})
+    st.session_state['last_processed'] = code
+    st.toast(f"📥 Masuk Antrean: {code}")
 
-    with col_l:
-        st.markdown("### 📥 Panel Scan")
-        date_pick = st.date_input("📅 TANGGAL", value=st.session_state['recap_date'])
-        st.session_state['recap_date'] = date_pick
-        
-        # --- KAMERA SCANNER ---
-        def video_callback(frame):
-            img = frame.to_ndarray(format="bgr24")
-            for obj in decode(img):
-                code = obj.data.decode('utf-8').strip().upper()
-                if code != st.session_state['last_processed_code']:
-                    st.session_state['detected_now'] = code
-            return frame.from_ndarray(img, format="bgr24")
-
-        webrtc_streamer(
-            key="scanner_v59",
-            video_frame_callback=video_callback,
-            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-            media_stream_constraints={"video": True, "audio": False}
-        )
-
-        if 'detected_now' in st.session_state:
-            scanned = st.session_state['detected_now']
-            if save_data(scanned, date_pick):
-                st.toast(f"✅ Tersimpan: {scanned}")
-                del st.session_state['detected_now']
+# --- PROSES SINKRONISASI KE CLOUD ---
+def sync_to_cloud():
+    if st.session_state['temp_data'] and sheet_master:
+        with st.spinner("Menyinkronkan ke Cloud..."):
+            try:
+                # Ambil data Cloud untuk cek duplikat terakhir
+                existing = sheet_master.col_values(2)
+                
+                rows_to_add = []
+                for item in st.session_state['temp_data']:
+                    if item['barcode'] not in existing:
+                        rows_to_add.append([len(existing) + len(rows_to_add) + 1, item['barcode'], item['time']])
+                
+                if rows_to_add:
+                    # Kirim semua data sekaligus (Batch Update) - JAUH LEBIH CEPAT
+                    start_row = len(existing) + 1
+                    end_row = start_row + len(rows_to_add) - 1
+                    range_name = f"A{start_row}:C{end_row}"
+                    sheet_master.update(range_name, rows_to_add)
+                
+                st.session_state['temp_data'] = [] # Kosongkan buffer setelah sukses
+                st.success("✅ Sinkronisasi Berhasil!")
                 time.sleep(1)
                 st.rerun()
-            else:
-                del st.session_state['detected_now']
+            except Exception as e:
+                st.error(f"Gagal sinkron: {e}")
 
-        # --- MANUAL / HONEYWELL INPUT (Garda Terdepan) ---
-        with st.form("manual_entry", clear_on_submit=True):
-            st.write("⌨️ **Input Manual / Honeywell**")
-            m_barcode = st.text_input("Barcode Value")
-            submit = st.form_submit_button("SIMPAN DATA ✨")
-            
-            if submit and m_barcode:
-                # Cek buffer sebelum kirim ke GSheet
-                if m_barcode.strip().upper() != st.session_state['last_processed_code']:
-                    if save_data(m_barcode, date_pick):
-                        st.toast("✅ Berhasil!")
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.toast("⚠️ Kode ini baru saja diinput!", icon="⚠️")
+# --- UI DASHBOARD ---
+st.markdown("<h2 style='text-align: center;'>☁️ WAHANA RECAP</h2>", unsafe_allow_html=True)
 
-    with col_r:
-        st.markdown("### 📊 Recent Updates")
-        try:
-            # Mengambil data terbaru secara langsung
-            raw = sheet_master.get_all_values()
-            if len(raw) > 1:
-                data_rows = []
-                for i, r in enumerate(raw[1:]):
-                    actual_row = i + 2
-                    row_content = (r + ["", "", ""])[:3]
-                    data_rows.append([actual_row] + row_content)
+col_input, col_monitor = st.columns([1, 1.2])
 
-                df = pd.DataFrame(data_rows, columns=["Gsheet_Row", "No", "Barcode", "Timestamp"])
-                df.insert(0, "Pilih", False)
+with col_input:
+    st.markdown("### ⚡ Fast Input")
+    # Form input manual yang tidak reload seluruh halaman
+    with st.container():
+        manual_code = st.text_input("TEMBAK BARCODE DI SINI (AUTO-ENTER)", key="entry", placeholder="Scan sekarang...")
+        if manual_code:
+            turbo_input(manual_code)
+            # Membersihkan input tanpa reload lamban
+            st.empty() 
 
-                edited = st.data_editor(
-                    df,
-                    column_config={"Gsheet_Row": None, "Pilih": st.column_config.CheckboxColumn(required=True)},
-                    disabled=["No", "Barcode", "Timestamp"],
-                    hide_index=True,
-                    use_container_width=True,
-                    key="table_editor_v59"
-                )
+    if st.button("🚀 SINKRONKAN KE GSHEET", use_container_width=True):
+        sync_to_cloud()
+    
+    st.divider()
+    st.markdown("### 📸 Camera Scan")
+    def video_callback(frame):
+        img = frame.to_ndarray(format="bgr24")
+        for obj in decode(img):
+            turbo_input(obj.data.decode('utf-8'))
+        return frame.from_ndarray(img, format="bgr24")
 
-                if st.button("🗑️ BERSIHKAN KOLOM A-C"):
-                    to_clear = edited[edited["Pilih"] == True]["Gsheet_Row"].tolist()
-                    if to_clear:
-                        for row_num in to_clear:
-                            sheet_master.batch_clear([f'A{row_num}:C{row_num}'])
-                        st.toast("🗑️ Kolom A-C Dikosongkan!")
-                        time.sleep(1)
-                        st.rerun()
-            else:
-                st.info("Tabel kosong.")
-        except Exception as e:
-            st.error(f"Error Table: {e}")
+    webrtc_streamer(key="cam", video_frame_callback=video_callback, 
+                    media_stream_constraints={"video": True, "audio": False})
 
-st.caption("v5.9")
+with col_monitor:
+    st.markdown(f"### 📊 Antrean Sementara ({len(st.session_state['temp_data'])})")
+    if st.session_state['temp_data']:
+        df_temp = pd.DataFrame(st.session_state['temp_data'])
+        st.table(df_temp.iloc[::-1]) # Tampilkan antrean terbaru di atas
+        if st.button("🗑️ Bersihkan Antrean"):
+            st.session_state['temp_data'] = []
+            st.rerun()
+    else:
+        st.info("Semua data sudah sinkron atau belum ada input.")
+
+    st.markdown("---")
+    st.markdown("### ☁️ Data di GSheet (Terakhir)")
+    try:
+        raw = sheet_master.get_all_values()
+        if len(raw) > 1:
+            df_cloud = pd.DataFrame([r[:3] for r in raw[1:]], columns=["No", "Barcode", "Jam"])
+            st.dataframe(df_cloud.tail(10), use_container_width=True)
+    except: pass
+
+st.caption("V6.0")
