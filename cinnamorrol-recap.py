@@ -154,7 +154,7 @@ if sh:
 
     # --- MINI MONITOR (REVERSE ORDER) ---
     st.markdown("---")
-    st.markdown("<h3 style='color:#000000;'>📊 Recent Updates (Terbaru di Atas)</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color:#000000;'>📊 Recent Updates</h3>", unsafe_allow_html=True)
 
     raw_data = sheet_recap.get_all_values()
     if len(raw_data) > 1:
