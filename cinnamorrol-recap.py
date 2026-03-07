@@ -8,16 +8,19 @@ from streamlit_webrtc import webrtc_streamer
 import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
-import pytz # Library untuk zona waktu
+import pytz
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="Wahana x IDX Recap", page_icon="🛡️", layout="wide")
 
-# Setting Zona Waktu Indonesia (WIB)
+# Zona Waktu Indonesia (WIB)
 tz_indo = pytz.timezone('Asia/Jakarta')
 
+# --- INISIALISASI SESSION STATE ---
 if 'recap_date' not in st.session_state:
     st.session_state['recap_date'] = datetime.now(tz_indo)
+if 'last_processed_code' not in st.session_state:
+    st.session_state['last_processed_code'] = "" # Lapis 1: Cegah scan berulang di sesi aktif
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -44,27 +47,33 @@ def init_gsheet():
 
 sheet_master = init_gsheet()
 
-# --- FUNGSI SIMPAN DATA ---
+# --- FUNGSI SIMPAN DATA (ANTI-DUPLIKAT) ---
 def save_data(barcode_val, date_obj):
     if not barcode_val: return False
+    
+    # Bersihkan spasi atau karakter aneh
+    barcode_val = str(barcode_val).strip()
+    
     try:
-        # Timestamp Indonesia Format 24 Jam
+        # Lapis 2: Cek di GSheet (Kolom B)
+        all_barcodes = sheet_master.col_values(2) # Ambil semua data di kolom B
+        if barcode_val in all_barcodes:
+            st.toast(f"⚠️ GAGAL! Kode {barcode_val} sudah ada di GSheet.", icon="🚫")
+            st.warning(f"Barcode `{barcode_val}` terdeteksi duplikat!")
+            return False
+            
+        # Jika lolos cek duplikat, buat timestamp WIB 24 Jam
         ts = datetime.now(tz_indo).strftime("%H:%M:%S")
         sheet_daily_name = date_obj.strftime("%d_%m_%Y_Rekap Wahana")
         
-        # Ambil kolom B untuk cek duplikat & hitung baris
-        all_b = sheet_master.col_values(2)
-        if barcode_val in all_b:
-            st.toast(f"⚠️ DUPLIKAT: {barcode_val}", icon="⚠️")
-            return False
-            
-        next_row = len(all_b) + 1
+        # Hitung baris berikutnya
+        next_row = len(all_barcodes) + 1
         
-        # Update Master (Hanya Kolom B & C)
+        # Simpan ke Master (Kolom B & C)
         sheet_master.update_acell(f'B{next_row}', barcode_val)
         sheet_master.update_acell(f'C{next_row}', ts)
         
-        # Update Daily Sheet
+        # Simpan ke Sheet Harian
         try:
             sh = sheet_master.spreadsheet
             ws_daily = sh.worksheet(sheet_daily_name)
@@ -75,98 +84,95 @@ def save_data(barcode_val, date_obj):
         
         return True
     except Exception as e:
-        st.error(f"Gagal simpan: {e}")
+        st.error(f"Error Database: {e}")
         return False
 
 # --- UI DASHBOARD ---
 if sheet_master:
-    st.markdown("<h1 class='main-title'>☁️ WAHANA RECAP</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title'>🛡️ WAHANA RECAP</h1>", unsafe_allow_html=True)
     
-    col_left, col_right = st.columns([1, 1.2])
+    col_l, col_r = st.columns([1, 1.2])
 
-    with col_left:
-        st.markdown("### 📥 Input Panel")
-        date_pick = st.date_input("📅 TANGGAL REKAP", value=st.session_state['recap_date'])
+    with col_l:
+        st.markdown("### 📥 Scanner Panel")
+        date_pick = st.date_input("📅 TANGGAL", value=st.session_state['recap_date'])
         st.session_state['recap_date'] = date_pick
         
-        # 1. Camera Auto-Scan
+        # 📸 Kamera Auto-Scan
         def video_callback(frame):
             img = frame.to_ndarray(format="bgr24")
             for obj in decode(img):
-                st.session_state['detected_now'] = obj.data.decode('utf-8')
+                code = obj.data.decode('utf-8')
+                # Lapis 3: Cek session state sebelum trigger simpan
+                if code != st.session_state['last_processed_code']:
+                    st.session_state['detected_now'] = code
             return frame.from_ndarray(img, format="bgr24")
 
         webrtc_streamer(
-            key="scanner",
+            key="scanner_v57",
             video_frame_callback=video_callback,
             rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
             media_stream_constraints={"video": True, "audio": False}
         )
 
+        # Proses hasil scan otomatis
         if 'detected_now' in st.session_state:
-            if save_data(st.session_state['detected_now'], date_pick):
-                st.toast("✅ Auto-Scan Berhasil!")
+            scanned_code = st.session_state['detected_now']
+            if save_data(scanned_code, date_pick):
+                st.toast(f"✅ Berhasil: {scanned_code}")
+                st.session_state['last_processed_code'] = scanned_code # Kunci kode agar tidak dobel scan
                 del st.session_state['detected_now']
                 time.sleep(1)
                 st.rerun()
+            else:
+                # Jika gagal (duplikat), tetap kunci kodenya agar kamera tidak berteriak terus
+                st.session_state['last_processed_code'] = scanned_code
+                del st.session_state['detected_now']
 
-        # 2. Input Manual
-        with st.form("manual_form", clear_on_submit=True):
-            barcode_manual = st.text_input("Barcode Value (Manual/Honeywell)")
-            if st.form_submit_button("SIMPAN DATA ✨") and barcode_manual:
-                if save_data(barcode_manual, date_pick):
-                    st.toast("✅ Tersimpan!")
+        # ⌨️ Input Manual
+        with st.form("manual_entry", clear_on_submit=True):
+            m_barcode = st.text_input("Barcode / Resi (Manual)")
+            if st.form_submit_button("SIMPAN DATA ✨") and m_barcode:
+                if save_data(m_barcode, date_pick):
+                    st.toast("✅ Data Manual Tersimpan!")
                     time.sleep(1)
                     st.rerun()
 
-    with col_right:
-        st.markdown("### 📊 Mini Table")
+    with col_r:
+        st.markdown("### 📊 Recent Updates")
         try:
-            raw_data = sheet_master.get_all_values()
-            
-            if len(raw_data) > 1:
-                header_names = ["No", "Barcode", "Timestamp"]
-                rows = []
-                for i, r in enumerate(raw_data[1:]):
-                    actual_row_num = i + 2
-                    # Ambil hanya kolom A, B, C (0, 1, 2)
-                    clean_row = (r + ["", "", ""])[:3]
-                    rows.append([actual_row_num] + clean_row)
+            raw = sheet_master.get_all_values()
+            if len(raw) > 1:
+                data_rows = []
+                for i, r in enumerate(raw[1:]):
+                    # Ambil kolom A, B, C (index 0, 1, 2)
+                    row_data = (r + ["", "", ""])[:3]
+                    data_rows.append([i + 2] + row_data)
 
-                df = pd.DataFrame(rows, columns=["Gsheet_Row", "No", "Barcode", "Timestamp"])
+                df = pd.DataFrame(data_rows, columns=["Gsheet_Row", "No", "Recap", "Timestamp"])
                 df.insert(0, "Pilih", False)
 
-                edited_df = st.data_editor(
+                edited = st.data_editor(
                     df,
-                    column_config={
-                        "Pilih": st.column_config.CheckboxColumn(required=True),
-                        "Gsheet_Row": None, 
-                        "No": st.column_config.TextColumn(width="small"),
-                        "Barcode": st.column_config.TextColumn(width="medium"),
-                        "Timestamp": st.column_config.TextColumn(width="small")
-                    },
-                    disabled=["No", "Barcode", "Timestamp"],
+                    column_config={"Gsheet_Row": None, "Pilih": st.column_config.CheckboxColumn(required=True)},
+                    disabled=["No", "Recap", "Timestamp"],
                     hide_index=True,
                     use_container_width=True,
-                    key="table_v56"
+                    key="table_final"
                 )
 
-                if st.button("🗑️ CLEAR DATA TERPILIH"):
-                    to_clear = edited_df[edited_df["Pilih"] == True]["Gsheet_Row"].tolist()
+                if st.button("🗑️ CLEAR KOLOM A-C TERPILIH"):
+                    to_clear = edited[edited["Pilih"] == True]["Gsheet_Row"].tolist()
                     if to_clear:
-                        # Logika Hapus Aman: Hanya mengosongkan range A:C di baris tersebut
-                        # Agar data di kolom D dan seterusnya tidak bergeser atau hilang
                         for row_num in to_clear:
-                            # Menghapus cell A, B, dan C pada baris terpilih
-                            range_to_clear = f'A{row_num}:C{row_num}'
-                            sheet_master.batch_clear([range_to_clear])
-                        
-                        st.toast(f"🗑️ {len(to_clear)} Data di Kolom A-C Dibersihkan!")
+                            # Hapus hanya range A-C tanpa geser baris
+                            sheet_master.batch_clear([f'A{row_num}:C{row_num}'])
+                        st.toast("🗑️ Data A-C dikosongkan!")
                         time.sleep(1)
                         st.rerun()
             else:
                 st.info("Tabel kosong.")
         except Exception as e:
-            st.error(f"Gagal memuat tabel: {e}")
+            st.error(f"Error Table: {e}")
 
-st.caption("v5.6")
+st.caption("v5.7")
