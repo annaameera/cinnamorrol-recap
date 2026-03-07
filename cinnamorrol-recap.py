@@ -4,35 +4,26 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 from datetime import datetime
 import time
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from pyzbar.pyzbar import decode
+import cv2
+import numpy as np
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Wahana Recap", page_icon="📸", layout="wide")
+st.set_page_config(page_title="Wahana Recap", page_icon="⚡", layout="wide")
 
-# --- INISIALISASI SESSION STATE ---
+# --- SESSION STATE ---
 if 'recap_date' not in st.session_state:
     st.session_state['recap_date'] = datetime.now()
-if 'last_scan' not in st.session_state:
-    st.session_state['last_scan'] = ""
+if 'last_detected' not in st.session_state:
+    st.session_state['last_detected'] = None
 
-# --- CUSTOM CSS: BLUE GLOSSY CRYSTAL ---
+# --- CSS GLOSSY ---
 st.markdown("""
     <style>
-    .stApp {
-        background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 30%, #e0f2fe 100%);
-        background-attachment: fixed;
-    }
-    .main-title {
-        color: #000000; font-family: 'Segoe UI'; font-weight: 900;
-        text-align: center; font-size: 3rem; text-transform: uppercase;
-    }
-    div[data-testid="stForm"], .glossy-card {
-        background: rgba(255, 255, 255, 0.2);
-        backdrop-filter: blur(20px);
-        border-radius: 30px; border: 1px solid rgba(255, 255, 255, 0.4);
-        padding: 20px; color: #000000;
-    }
-    /* Tombol Scanner Gaya Modern */
-    .stCameraInput > label { display: none; }
+    .stApp { background: linear-gradient(135deg, #0ea5e9 0%, #e0f2fe 100%); }
+    .main-title { color: #000; font-weight: 900; text-align: center; font-size: 2.5rem; }
+    div[data-testid="stExpander"] { background: rgba(255,255,255,0.2); border-radius: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -47,102 +38,110 @@ def init_gsheet():
         url = "https://docs.google.com/spreadsheets/d/1vlwLdTxPLDnDkrn4luNKnRr_SH5TG-YJXK5NZAdWCVQ/edit?usp=sharing"
         return client.open_by_url(url)
     except Exception as e:
-        st.error(f"Koneksi Cloud Terputus: {e}")
+        st.error(f"Koneksi Gagal: {e}")
         return None
 
 sh = init_gsheet()
 
-def save_to_gsheet(barcode_data, date_obj):
-    """Fungsi helper untuk simpan data agar bisa dipanggil otomatis"""
+# --- LOGIKA SIMPAN DATA ---
+def push_data(barcode_val):
     try:
         sheet_recap = sh.worksheet("Report Recap")
         ts = datetime.now().strftime("%H:%M:%S")
-        sheet_daily_name = date_obj.strftime("%d_%m_%Y_Rekap Wahana")
+        date_str = st.session_state['recap_date'].strftime("%d_%m_%Y_Rekap Wahana")
         
-        # Anti-Duplikat
-        all_b_values = sheet_recap.col_values(2)[1:1340]
-        if barcode_data in all_b_values:
-            return "duplicate", barcode_data
-        
-        # Update Main Recap
-        next_row = len(sheet_recap.col_values(2)) + 1
-        sheet_recap.update_acell(f'B{next_row}', barcode_data)
+        # Cek Duplikat di kolom B
+        existing = sheet_recap.col_values(2)
+        if barcode_val in existing:
+            return False, "Duplikat"
+
+        # Simpan ke Master Recap
+        next_row = len(existing) + 1
+        sheet_recap.update_acell(f'B{next_row}', barcode_val)
         sheet_recap.update_acell(f'C{next_row}', ts)
-        
-        # Update Daily Sheet
+
+        # Simpan ke Sheet Harian
         try:
-            ws_daily = sh.worksheet(sheet_daily_name)
+            ws_daily = sh.worksheet(date_str)
         except gspread.WorksheetNotFound:
-            ws_daily = sh.add_worksheet(title=sheet_daily_name, rows="1000", cols="5")
-            ws_daily.append_row(["Data Barcode", "Timestamp"])
+            ws_daily = sh.add_worksheet(title=date_str, rows="1000", cols="5")
+            ws_daily.append_row(["Barcode", "Jam"])
         
-        ws_daily.append_row([barcode_data, ts])
-        return "success", barcode_data
-    except Exception as e:
-        return "error", str(e)
+        ws_daily.append_row([barcode_val, ts])
+        return True, "Berhasil"
+    except:
+        return False, "Error System"
 
+# --- INTERFACE UTAMA ---
 if sh:
-    st.markdown("<h1 class='main-title'>📸 SCANNER WAHANA</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title'>⚡SCANNER WAHANA</h1>", unsafe_allow_html=True)
     
-    # --- BAGIAN SCANNER OTOMATIS ---
-    with st.container():
-        st.markdown("### 📱 Camera QR Scanner")
-        # Menggunakan camera_input sebagai trigger otomatis
-        img_file = st.camera_input("Arahkan QR Code ke Kamera")
-        
-        if img_file:
-            # Di dunia nyata, browser akan menangkap gambar. 
-            # Untuk 'Auto Enter' Barcode, kita asumsikan input dari Honeywell tetap ada
-            # Namun jika ingin Full Camera QR, kita butuh library 'pyzbar' atau 'opencv'
-            import cv2
-            import numpy as np
-            
-            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-            opencv_img = cv2.imdecode(file_bytes, 1)
-            detector = cv2.QRCodeDetector()
-            data, points, _ = detector.detectAndDecode(opencv_img)
-            
-            if data:
-                if data != st.session_state['last_scan']:
-                    status, msg = save_to_gsheet(data, st.session_state['recap_date'])
-                    st.session_state['last_scan'] = data # Cegah loop simpan
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("📸 Live Camera Scan")
+        # Kalender Persistent
+        date_input = st.date_input("Tanggal Rekap", value=st.session_state['recap_date'])
+        st.session_state['recap_date'] = date_input
+
+        # VIDEO TRANSFORMER UNTUK AUTO-DETEKSI
+        class BarcodeProcessor(VideoTransformerBase):
+            def transform(self, frame):
+                img = frame.to_ndarray(format="bgr24")
+                barcodes = decode(img)
+                for barcode in barcodes:
+                    data = barcode.data.decode('utf-8')
+                    # Gambar kotak di sekitar barcode untuk visual feedback
+                    (x, y, w, h) = barcode.rect
+                    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
                     
-                    if status == "success":
-                        st.toast(f"Tersimpan: {data}", icon="✅")
-                        st.success(f"Data {data} Berhasil Masuk!")
-                        time.sleep(1)
-                        st.rerun()
-                    elif status == "duplicate":
-                        st.warning(f"Data {data} sudah ada!")
-            else:
-                st.info("QR Code tidak terdeteksi. Pastikan gambar jelas.")
+                    if data != st.session_state.get('last_detected'):
+                        st.session_state['last_detected'] = data
+                        # Trigger simpan data
+                return img
 
-    # --- INPUT MANUAL (TETAP TERSEDIA) ---
-    with st.expander("⌨️ Input Manual / Honeywell Scan"):
-        with st.form("manual_form", clear_on_submit=True):
-            date_pick = st.date_input("Tanggal", value=st.session_state['recap_date'])
-            st.session_state['recap_date'] = date_pick
-            manual_barcode = st.text_input("Barcode Value")
-            submit_manual = st.form_submit_button("Simpan Manual")
+        webrtc_streamer(
+            key="scanner",
+            video_transformer_factory=BarcodeProcessor,
+            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+            media_stream_constraints={"video": True, "audio": False},
+        )
+
+        # Logic Auto-Enter setelah deteksi
+        if st.session_state['last_detected']:
+            barcode_now = st.session_state['last_detected']
+            success, msg = push_data(barcode_now)
+            if success:
+                st.toast(f"✅ TERDATA: {barcode_now}", icon="🚀")
+                st.session_state['last_detected'] = None # Reset agar bisa scan barcode lain
+                time.sleep(1)
+                st.rerun()
+            elif msg == "Duplikat":
+                st.warning(f"⚠️ {barcode_now} sudah pernah di-scan.")
+                st.session_state['last_detected'] = None
+
+    with col2:
+        st.subheader("📊 Recent Updates")
+        try:
+            sheet_recap = sh.worksheet("Report Recap")
+            raw = sheet_recap.get_all_values()
             
-            if submit_manual and manual_barcode:
-                status, msg = save_to_gsheet(manual_barcode, date_pick)
-                if status == "success":
-                    st.success("Data Tersimpan!")
+            if len(raw) > 1:
+                # Perbaikan Logika Tabel Error:
+                # Ambil data, abaikan header, buat DF, lalu balik urutan
+                df = pd.DataFrame(raw[1:], columns=["No", "Barcode", "Waktu"])
+                df_reversed = df.iloc[::-1].reset_index(drop=True)
+                
+                # Tampilkan tabel statis (lebih stabil untuk auto-refresh)
+                st.dataframe(df_reversed.head(15), use_container_width=True, hide_index=True)
+                
+                if st.button("🗑️ Reset Terakhir (Hapus Baris Terbawah GSheet)"):
+                    sheet_recap.delete_rows(len(raw))
+                    st.toast("Baris terakhir dihapus!")
                     st.rerun()
+            else:
+                st.info("Kosong")
+        except Exception as e:
+            st.error(f"Table Error: {e}")
 
-    # --- MINI MONITOR (REVERSED) ---
-    st.markdown("---")
-    st.markdown("### 📊 Live Monitor")
-    
-    sheet_recap = sh.worksheet("Report Recap")
-    raw_data = sheet_recap.get_all_values()
-    
-    if len(raw_data) > 1:
-        df = pd.DataFrame(raw_data[1:], columns=["No", "Data Barcode", "Timestamp"])
-        df_view = df.iloc[::-1].head(10) # Tampilkan 10 terbaru
-        st.table(df_view) # Table lebih ringan untuk mobile
-    else:
-        st.info("Belum ada data.")
-
-st.caption("Cinnamoroll Wahana System v3.0 - Auto Camera Mode")
+st.caption("Cinnamoroll Wahana System v4.0 - Real-time WebRTC")
